@@ -1,4 +1,5 @@
 use crate::index_source::IndexSource;
+use crate::mapping_source::MappingSource;
 use crate::Connection;
 use reedline::{CompletionResult, Completer, Span, Suggestion};
 
@@ -6,35 +7,48 @@ const METHODS: &[&str] = &["DELETE", "GET", "HEAD", "POST", "PUT"];
 
 // ponytail: type alias avoids clippy::type_complexity
 type BoxedIndexSource = IndexSource<Box<dyn Fn() -> Vec<String> + Send>>;
+type BoxedMappingSource = MappingSource<Box<dyn Fn(&str) -> Vec<String> + Send>>;
 
 pub struct EndpointCompleter {
     endpoints: Vec<(String, String)>, // (method, path_template)
     index_source: Option<BoxedIndexSource>,
+    mapping_source: Option<BoxedMappingSource>,
 }
 
 impl EndpointCompleter {
     /// Static-only completion (no live cluster connection).
     #[allow(dead_code)] // ponytail: valid API entry, used in tests
     pub fn new() -> Self {
-        Self::with_endpoints_and_source(Self::load_endpoints(), None)
+        Self::with_sources(Self::load_endpoints(), None, None)
     }
 
-    /// Create with a live cluster connection for index completion.
+    /// Create with a live cluster connection for index and field completion.
     pub fn with_connection(conn: Connection) -> Self {
-        Self::with_endpoints_and_source(Self::load_endpoints(), Some(IndexSource::new(conn)))
+        Self::with_sources(
+            Self::load_endpoints(),
+            Some(IndexSource::new(conn.clone())),
+            Some(MappingSource::new(conn)),
+        )
     }
 
     /// Create with injected index source (for testing).
     #[cfg(test)]
     pub fn with_index_source(source: BoxedIndexSource) -> Self {
-        Self::with_endpoints_and_source(Self::load_endpoints(), Some(source))
+        Self::with_sources(Self::load_endpoints(), Some(source), None)
     }
 
-    fn with_endpoints_and_source(
+    /// Create with injected mapping source (for testing).
+    #[cfg(test)]
+    pub fn with_mapping_source(source: BoxedMappingSource) -> Self {
+        Self::with_sources(Self::load_endpoints(), None, Some(source))
+    }
+
+    fn with_sources(
         endpoints: Vec<(String, String)>,
         index_source: Option<BoxedIndexSource>,
+        mapping_source: Option<BoxedMappingSource>,
     ) -> Self {
-        Self { endpoints, index_source }
+        Self { endpoints, index_source, mapping_source }
     }
 
     fn load_endpoints() -> Vec<(String, String)> {
@@ -75,6 +89,59 @@ impl EndpointCompleter {
             || trimmed.starts_with(':')
             || trimmed.starts_with(',')
             || (line.starts_with(char::is_whitespace) && !trimmed.starts_with(|c: char| c.is_ascii_uppercase()))
+    }
+
+    /// Find the request line (METHOD /path) for the body containing the cursor.
+    fn find_request_line(buffer: &str, pos: usize) -> Option<&str> {
+        // Scan backwards from cursor for a line starting with an HTTP method
+        let before_cursor = &buffer[..pos];
+        for line in before_cursor.lines().rev() {
+            let trimmed = line.trim_start();
+            if METHODS.iter().any(|m| trimmed.starts_with(m)) {
+                return Some(line);
+            }
+        }
+        None
+    }
+
+    /// Complete field names from index mapping when in JSON key position.
+    fn complete_fields(&mut self, buffer: &str, pos: usize) -> Option<Vec<Suggestion>> {
+        // Check if we're in key position
+        if !is_in_key_position(buffer, pos) {
+            return None;
+        }
+
+        // Find the request this body belongs to
+        let request_line = Self::find_request_line(buffer, pos)?;
+        let path = request_line.split_whitespace().nth(1)?;
+        let index = extract_index_from_path(path)?;
+
+        // Get mapping source
+        let mapping_source = self.mapping_source.as_mut()?;
+
+        // Find the key prefix being typed
+        // Look backwards from pos to find the opening quote of the current string
+        let before = &buffer[..pos];
+        let quote_pos = before.rfind('"')?;
+        let prefix = &buffer[quote_pos + 1..pos];
+
+        // Get matching fields
+        let fields = mapping_source.fields_with_prefix(&index, prefix);
+        if fields.is_empty() {
+            return None;
+        }
+
+        let span = Span::new(quote_pos + 1, pos);
+        Some(fields.into_iter().map(|f| Suggestion {
+            value: f,
+            display_override: None,
+            description: None,
+            style: None,
+            extra: None,
+            span,
+            append_whitespace: false,
+            match_indices: None,
+        }).collect())
     }
 
     /// Complete methods by prefix (case-insensitive)
@@ -271,8 +338,11 @@ impl Completer for EndpointCompleter {
         let line_start = Self::line_start(line, pos);
         let pos_in_line = pos - line_start;
 
-        // Skip if in body
+        // Check if in body - try field completion
         if Self::is_in_body(current_line) {
+            if let Some(suggestions) = self.complete_fields(line, pos) {
+                return CompletionResult::fresh(suggestions);
+            }
             return CompletionResult::fresh(vec![]);
         }
 
@@ -326,6 +396,58 @@ impl Completer for EndpointCompleter {
         }
 
         CompletionResult::fresh(vec![])
+    }
+}
+
+/// Extract index name from request path.
+/// Returns None if first segment starts with _ (system endpoint).
+pub fn extract_index_from_path(path: &str) -> Option<String> {
+    let path = path.strip_prefix('/').unwrap_or(path);
+    let first_seg = path.split('/').next()?;
+    if first_seg.is_empty() || first_seg.starts_with('_') {
+        return None;
+    }
+    Some(first_seg.to_string())
+}
+
+/// Check if cursor is in a JSON key position (after { or , in a string, before :).
+/// Returns false for triple-quoted strings and value positions.
+pub fn is_in_key_position(text: &str, pos: usize) -> bool {
+    let text = &text[..pos];
+    
+    // Find the last unescaped quote to see if we're in a string
+    let mut in_string = false;
+    let mut last_quote_pos = 0;
+    let mut prev_char = None;
+    
+    for (i, c) in text.char_indices() {
+        if c == '"' && prev_char != Some('\\') {
+            in_string = !in_string;
+            if in_string {
+                last_quote_pos = i;
+            }
+        }
+        prev_char = Some(c);
+    }
+    
+    if !in_string {
+        return false; // Not in a string at all
+    }
+    
+    // Check for triple-quote (""")
+    if last_quote_pos >= 2 && &text[last_quote_pos - 2..last_quote_pos + 1] == "\"\"\"" {
+        return false;
+    }
+    
+    // Look backwards from the opening quote for context
+    let before_quote = text[..last_quote_pos].trim_end();
+    
+    // Key position: after { or ,
+    // Value position: after :
+    if let Some(last_char) = before_quote.chars().last() {
+        matches!(last_char, '{' | ',')
+    } else {
+        false
     }
 }
 
@@ -532,5 +654,98 @@ mod tests {
 
         c.complete("G", 1); // Method completion
         assert_eq!(call_count.load(Ordering::SeqCst), 0, "should not fetch on method completion");
+    }
+
+    // --- Field name completion tests ---
+
+    #[test]
+    fn extract_index_books_search() {
+        // /books/_search → "books"
+        assert_eq!(extract_index_from_path("/books/_search"), Some("books".to_string()));
+    }
+
+    #[test]
+    fn extract_index_underscore_search_none() {
+        // /_search → None (starts with _)
+        assert_eq!(extract_index_from_path("/_search"), None);
+    }
+
+    #[test]
+    fn extract_index_comma_list() {
+        // /books,articles/_search → "books,articles" (pass as-is, ES resolves)
+        assert_eq!(extract_index_from_path("/books,articles/_search"), Some("books,articles".to_string()));
+    }
+
+    #[test]
+    fn key_position_after_open_brace() {
+        // {"ti  - cursor after opening brace, in a string, before any colon
+        let text = r#"{"ti"#;
+        assert!(is_in_key_position(text, text.len()), "after {{ in string is key position");
+    }
+
+    #[test]
+    fn key_position_after_comma() {
+        // {"query":{},"ti  - cursor after comma, in key position
+        let text = r#"{"query":{},"ti"#;
+        assert!(is_in_key_position(text, text.len()), "after comma in string is key position");
+    }
+
+    #[test]
+    fn not_key_position_after_colon() {
+        // {"query":"ti  - cursor after colon, in VALUE position
+        let text = r#"{"query":"ti"#;
+        assert!(!is_in_key_position(text, text.len()), "after colon is value position, not key");
+    }
+
+    #[test]
+    fn not_key_position_in_triple_quotes() {
+        // """ti - triple quoted strings are not key position
+        let text = r#""""ti"#;
+        assert!(!is_in_key_position(text, text.len()), "triple quotes are not key position");
+    }
+
+    #[test]
+    fn field_completion_in_body() {
+        use crate::mapping_source::MappingSource;
+        // Setup: mapping returns title, title.keyword, author.name for "books"
+        let source = MappingSource::new_from_boxed(Box::new(|idx: &str| {
+            if idx == "books" {
+                vec!["author.name".into(), "title".into(), "title.keyword".into()]
+            } else {
+                vec![]
+            }
+        }));
+        let mut c = EndpointCompleter::with_mapping_source(source);
+
+        // POST /books/_search followed by JSON body with cursor in key position
+        let buffer = "POST /books/_search\n{\"query\":{\"match\":{\"ti";
+        let pos = buffer.len();
+        let results: Vec<String> = suggestions_from_result(c.complete(buffer, pos))
+            .into_iter().map(|s| s.value).collect();
+
+        assert!(results.contains(&"title".to_string()), "expected 'title' in {:?}", results);
+        assert!(results.contains(&"title.keyword".to_string()), "expected 'title.keyword' in {:?}", results);
+        assert!(!results.contains(&"author.name".to_string()), "should not include non-matching 'author.name'");
+    }
+
+    #[test]
+    fn field_completion_span_correct() {
+        use crate::mapping_source::MappingSource;
+        let source = MappingSource::new_from_boxed(Box::new(|_: &str| {
+            vec!["title".into()]
+        }));
+        let mut c = EndpointCompleter::with_mapping_source(source);
+
+        let buffer = "POST /books/_search\n{\"ti";
+        let pos = buffer.len(); // cursor at end, after "ti
+        let suggestions = suggestions_from_result(c.complete(buffer, pos));
+
+        assert!(!suggestions.is_empty(), "should have field suggestions");
+        let s = &suggestions[0];
+        // Span should cover just "ti (the key prefix being typed)
+        // Position: buffer is "POST /books/_search\n{\"ti" = 20 (line) + 4 = 24 chars
+        // The key starts at position 21 (after {" ), prefix "ti" is 2 chars
+        assert_eq!(s.span.start, 22, "span start should be after opening quote");
+        assert_eq!(s.span.end, pos, "span end should be at cursor");
     }
 }

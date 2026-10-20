@@ -119,6 +119,7 @@ impl MappingSource<Box<dyn Fn(&str) -> Vec<String> + Send>> {
 
     /// Create from an already-boxed fetch function (for testing).
     #[cfg(test)]
+    #[allow(clippy::type_complexity)] // ponytail: test-only, matches complete.rs pattern
     pub fn new_from_boxed(fetch_fn: Box<dyn Fn(&str) -> Vec<String> + Send>) -> Self {
         Self {
             fetch_fn,
