@@ -166,65 +166,71 @@ pub(crate) fn read_test_request(stream: &mut impl std::io::Read) -> String {
     String::from_utf8_lossy(&data).into_owned()
 }
 
+/// Test mock server; reusable across modules.
+#[cfg(test)]
+pub(crate) struct MockServer {
+    addr: String,
+    shutdown_tx: std::sync::mpsc::Sender<()>,
+}
+
+#[cfg(test)]
+impl MockServer {
+    pub fn start<F>(handler: F) -> Self
+    where
+        F: Fn(&str) -> String + Send + 'static,
+    {
+        use std::io::Write;
+        use std::net::TcpListener;
+        use std::sync::mpsc;
+        use std::thread;
+
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap().to_string();
+        let (shutdown_tx, shutdown_rx) = mpsc::channel();
+
+        thread::spawn(move || {
+            listener.set_nonblocking(true).unwrap();
+            loop {
+                if shutdown_rx.try_recv().is_ok() {
+                    break;
+                }
+                if let Ok((mut stream, _)) = listener.accept() {
+                    stream.set_nonblocking(false).unwrap();
+                    let req = read_test_request(&mut stream);
+                    let response = handler(&req);
+                    let _ = stream.write_all(response.as_bytes());
+                }
+                thread::sleep(std::time::Duration::from_millis(10));
+            }
+        });
+
+        MockServer { addr, shutdown_tx }
+    }
+
+    pub fn url(&self) -> String {
+        format!("http://{}", self.addr)
+    }
+}
+
+#[cfg(test)]
+impl Drop for MockServer {
+    fn drop(&mut self) {
+        let _ = self.shutdown_tx.send(());
+    }
+}
+
+#[cfg(test)]
+pub(crate) fn ok_response(body: &str) -> String {
+    format!(
+        "HTTP/1.1 200 OK\r\nContent-Length: {}\r\n\r\n{}",
+        body.len(),
+        body
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::io::Write;
-    use std::net::TcpListener;
-    use std::sync::mpsc;
-    use std::thread;
-
-    struct MockServer {
-        addr: String,
-        shutdown_tx: mpsc::Sender<()>,
-    }
-
-    impl MockServer {
-        fn start<F>(handler: F) -> Self
-        where
-            F: Fn(&str) -> String + Send + 'static,
-        {
-            let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-            let addr = listener.local_addr().unwrap().to_string();
-            let (shutdown_tx, shutdown_rx) = mpsc::channel();
-
-            thread::spawn(move || {
-                listener.set_nonblocking(true).unwrap();
-                loop {
-                    if shutdown_rx.try_recv().is_ok() {
-                        break;
-                    }
-                    if let Ok((mut stream, _)) = listener.accept() {
-                        stream.set_nonblocking(false).unwrap();
-                        let req = read_test_request(&mut stream);
-                        let response = handler(&req);
-                        let _ = stream.write_all(response.as_bytes());
-                    }
-                    thread::sleep(std::time::Duration::from_millis(10));
-                }
-            });
-
-            MockServer { addr, shutdown_tx }
-        }
-
-        fn url(&self) -> String {
-            format!("http://{}", self.addr)
-        }
-    }
-
-    impl Drop for MockServer {
-        fn drop(&mut self) {
-            let _ = self.shutdown_tx.send(());
-        }
-    }
-
-    fn ok_response(body: &str) -> String {
-        format!(
-            "HTTP/1.1 200 OK\r\nContent-Length: {}\r\n\r\n{}",
-            body.len(),
-            body
-        )
-    }
 
     #[test]
     fn test_build_url_with_leading_slash() {
