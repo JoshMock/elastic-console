@@ -140,10 +140,36 @@ fn is_ndjson_endpoint(path: &str) -> bool {
     path_part.contains("_bulk") || path_part.contains("_msearch")
 }
 
+/// Reads one HTTP request (headers plus Content-Length body) from a test client.
+/// A single read() can return before the body arrives, which made tests flaky.
+#[cfg(test)]
+pub(crate) fn read_test_request(stream: &mut impl std::io::Read) -> String {
+    let mut data = Vec::new();
+    let mut buf = [0u8; 4096];
+    loop {
+        let n = stream.read(&mut buf).unwrap_or(0);
+        if n == 0 {
+            break;
+        }
+        data.extend_from_slice(&buf[..n]);
+        let text = String::from_utf8_lossy(&data);
+        if let Some(end) = text.find("\r\n\r\n") {
+            let len = text[..end]
+                .lines()
+                .find_map(|l| l.to_lowercase().strip_prefix("content-length:").map(|v| v.trim().parse::<usize>().unwrap_or(0)))
+                .unwrap_or(0);
+            if data.len() >= end + 4 + len {
+                break;
+            }
+        }
+    }
+    String::from_utf8_lossy(&data).into_owned()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::io::{Read, Write};
+    use std::io::Write;
     use std::net::TcpListener;
     use std::sync::mpsc;
     use std::thread;
@@ -170,9 +196,7 @@ mod tests {
                     }
                     if let Ok((mut stream, _)) = listener.accept() {
                         stream.set_nonblocking(false).unwrap();
-                        let mut buf = [0u8; 4096];
-                        let n = stream.read(&mut buf).unwrap_or(0);
-                        let req = String::from_utf8_lossy(&buf[..n]).to_string();
+                        let req = read_test_request(&mut stream);
                         let response = handler(&req);
                         let _ = stream.write_all(response.as_bytes());
                     }

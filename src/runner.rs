@@ -105,7 +105,7 @@ impl From<HttpError> for RunError {
 mod tests {
     use super::*;
     use crate::Auth;
-    use std::io::{Read, Write as IoWrite};
+    use std::io::Write as IoWrite;
     use std::net::TcpListener;
     use std::sync::mpsc;
     use std::thread;
@@ -132,9 +132,7 @@ mod tests {
                     }
                     if let Ok((mut stream, _)) = listener.accept() {
                         stream.set_nonblocking(false).unwrap();
-                        let mut buf = [0u8; 4096];
-                        let n = stream.read(&mut buf).unwrap_or(0);
-                        let req = String::from_utf8_lossy(&buf[..n]).to_string();
+                        let req = crate::http::read_test_request(&mut stream);
                         let response = handler(&req);
                         let _ = stream.write_all(response.as_bytes());
                     }
