@@ -62,6 +62,10 @@ impl Highlighter for SyntaxHighlighter {
         while let Some(qmatch) = matches.next() {
             for capture in qmatch.captures {
                 let capture_name = &self.query.capture_names()[capture.index as usize];
+                // `@none` spans the whole body; keeping it would mask the JSON captures inside.
+                if *capture_name == "none" {
+                    continue;
+                }
                 let style = self.style_for_capture(capture_name);
                 let range = capture.node.byte_range();
                 highlights.push((range.start, range.end, style));
@@ -155,7 +159,7 @@ mod tests {
     #[test]
     fn test_json_body_preserves_text() {
         let h = SyntaxHighlighter::new();
-        // Test that JSON body text is preserved even if not syntax-highlighted
+        // Test that JSON body text is preserved
         let input = r#"POST /test
 {"field": "value", "count": 42}"#;
         let styled = h.highlight(input, 0);
@@ -177,5 +181,15 @@ mod tests {
             *style == path_style && text == "/test"
         });
         assert!(has_path, "/test should be styled as path");
+    }
+
+    #[test]
+    fn test_json_body_values_styled() {
+        let h = SyntaxHighlighter::new();
+        let styled = h.highlight("POST /test\n{\"count\": 42, \"ok\": true}\n", 0);
+        let style_of = |t: &str| styled.buffer.iter().find(|(_, s)| s == t).map(|(st, _)| *st);
+        assert_eq!(style_of("42"), Some(Color::Purple.normal()));
+        assert_eq!(style_of("true"), Some(Color::Purple.normal()));
+        assert_eq!(style_of("{"), Some(Color::White.normal()));
     }
 }
