@@ -102,7 +102,7 @@ Static, offline, no cluster round trip.
 - Tab opens ColumnarMenu; keybinding `UntilFound([Menu("completion_menu"), MenuNext])`.
 - 12 unit tests covering method prefix, path completion, param substitution, method filtering, span correctness, querystring/body exclusion, multiline buffers.
 
-### Phase 3.5: `${var}` variables
+### Phase 3.5: `${var}` variables ✅ code done, pending manual TTY check
 
 Decision: no grammar change needed. The grammar already parses `${x}` as part of a path segment or a JSON string (verified: `GET /${idx}/_search`, `"""${shopName}"""`, `"${pin}"` all parse). Substitute in the request text before sending. A named `variable` node for highlighting is a later, optional grammar PR.
 
