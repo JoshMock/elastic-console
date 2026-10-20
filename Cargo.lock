@@ -774,7 +774,6 @@ dependencies = [
 [[package]]
 name = "tree-sitter-elasticsearch-console"
 version = "0.1.0"
-source = "git+https://github.com/elastic/tree-sitter-elasticsearch-console?rev=cca641d4527cd3b6211de1a31040cc524e683c6d#cca641d4527cd3b6211de1a31040cc524e683c6d"
 dependencies = [
  "cc",
  "tree-sitter-language",
