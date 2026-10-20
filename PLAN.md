@@ -127,7 +127,12 @@ Defining variables (decision): REPL commands, kept in memory for the session onl
    - `src/complete.rs`: `with_connection(conn)` for live mode; detects `{index}` slot in templates.
    - Ordering: live index names first, then static template matches (real indices outrank expansions of a partial name like `/book/_count`).
    - 14 tests (8 index_source + 6 completer integration).
-2. **Field names** from `GET <index>/_mapping` for body keys like `match`, `term`, `sort`.
+2. **Field names** ✅ code done, pending manual TTY check: suggest field names from `GET <index>/_mapping` while typing a JSON object KEY inside a request body.
+   - Index = first path segment if it does not start with `_` (e.g. `POST /books/_search` → `books`; `/_search` → no field suggestions). Comma lists / wildcards passed as-is to `GET /<segment>/_mapping`.
+   - `src/mapping_source.rs`: fetch, parse, 60 s cache per index with injected clock for testing, 2 s timeout. Flattens `properties` recursively into dotted paths (`author.name`), includes multi-fields (`title.keyword`). Failures cached as empty.
+   - Trigger: cursor in JSON string in KEY position (after `{` or `,`, before `:`). Not in triple-quoted strings. Text-based scan (grammar has no named key node).
+   - Completion value = field name only (no quotes). Span = typed prefix after opening quote.
+   - 9 mapping_source tests + 9 completer integration tests.
 3. **Body keys** from the spec `types`: walk the request type of the matched endpoint to offer valid keys at the cursor's JSON path.
 4. Split this into a library crate so the same engine can back an LSP server later ([elasticsearch-lsp idea](https://github.com/JoshMock/llm-wiki/blob/main/spacetime/elasticsearch-lsp.md)).
 
