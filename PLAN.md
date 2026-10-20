@@ -69,13 +69,7 @@ Why `reedline`: it has the needed traits: `Highlighter`, `Completer`, `Hinter`, 
 - Kitty keyboard enhancement enabled (`use_kitty_keyboard_enhancement(true)`). Alt+Enter works as fallback.
 
 **Dev environment:**
-- The private grammar repo (`tree-sitter-elasticsearch-console`) requires GitHub auth. Build commands need:
-  ```
-  export CARGO_HOME=/tmp/cargo-home CARGO_NET_GIT_FETCH_WITH_CLI=true \
-         GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=credential.https://github.com.helper \
-         GIT_CONFIG_VALUE_0='!gh auth git-credential'
-  ```
-- If using nono sandbox, add `--allow /usr/include:read` for C compiler headers (tree-sitter native code).
+- The grammar is a path dependency on a local clone at `../elastic-neovim/tree-sitter-elasticsearch-console`. In the nono sandbox, build with `CARGO_HOME=/tmp/cargo-home` (`~/.cargo/registry` is read-only) and grant read on `/usr/include` for the C compiler.
 
 ### Phase 2: syntax highlighting (≈ 1 day)
 
