@@ -102,11 +102,23 @@ Static, offline, no cluster round trip.
 - Tab opens ColumnarMenu; keybinding `UntilFound([Menu("completion_menu"), MenuNext])`.
 - 12 unit tests covering method prefix, path completion, param substitution, method filtering, span correctness, querystring/body exclusion, multiline buffers.
 
-### Phase 3.5: `${var}` variables (after upstream grammar PR)
+### Phase 3.5: `${var}` variables
 
-1. Upstream PR to the grammar adding a `variable` node (gap 2 below).
-2. `:set name value` REPL command, values kept in memory; substitute before sending.
-3. Not in the MVP.
+Decision: no grammar change needed. The grammar already parses `${x}` as part of a path segment or a JSON string (verified: `GET /${idx}/_search`, `"""${shopName}"""`, `"${pin}"` all parse). Substitute in the request text before sending. A named `variable` node for highlighting is a later, optional grammar PR.
+
+Substitution rules, from the [Kibana Console docs](https://www.elastic.co/docs/explore-analyze/query-filter/tools/console):
+
+1. Variables are allowed in paths and bodies, and may be embedded inside a longer string.
+2. `"${var}"` (the whole string): substituted without the quotes if the value is a boolean, number, array, or object.
+3. `"""${var}"""`: always substituted as a string.
+4. An empty value is substituted as `""`.
+
+Defining variables (decision): REPL commands, kept in memory for the session only.
+
+- `:set name value`: define or overwrite. `value` is the rest of the line.
+- `:vars`: list all variables.
+- An undefined `${name}` is left as-is, matching Kibana ("replaced … if the variable exists").
+- Piped mode (decision): `:set` lines are processed in order with requests, so a script can define its own variables.
 
 ### Phase 4 (stretch): LSP-like completion
 
