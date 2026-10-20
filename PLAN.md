@@ -28,7 +28,7 @@ One Rust binary, a few modules. No workspace until something needs to be shared.
 | --- | --- | --- |
 | `env` | Read `ELASTIC_*` vars into a `Connection` | stdlib |
 | `parse` | Buffer → list of `Request { method, path, bodies }` via tree-sitter | `tree-sitter`, `tree-sitter-elasticsearch-console` (git dep, not on crates.io) |
-| `http` | Send request, return status + headers + body | `reqwest` (blocking, rustls) |
+| `http` | Send request, return status + headers + body | `ureq` + rustls (simpler API than reqwest, pure Rust TLS) |
 | `repl` | Line editor, history, key bindings | `reedline` 0.52 |
 | `highlight` | `reedline::Highlighter` backed by the grammar's `highlights.scm` | `tree-sitter-highlight` |
 | `complete` | `reedline::Completer` | see phases |
@@ -51,7 +51,7 @@ Why `reedline`: it has the needed traits: `Highlighter`, `Completer`, `Hinter`, 
 2. Register locally: `elastic extension create console --path ./target/release`  (`--path` registers an existing dir without overwriting).
 3. Verify: `elastic console` prints the URL from the active context.
 
-### Phase 1: MVP REPL (≈ 2–3 days)
+### Phase 1: MVP REPL ✅ code done, pending manual TTY check
 
 1. `reedline` loop with file history at `~/.elastic/console_history`.
 2. Key bindings from "Key bindings" above, including the fallback binding.
@@ -60,6 +60,22 @@ Why `reedline`: it has the needed traits: `Highlighter`, `Completer`, `Hinter`, 
 5. `Ctrl-C` cancels the current input, `Ctrl-D` exits.
 6. Non-TTY mode: if stdin is not a TTY, read all requests from stdin, run them in order, print results. This is what an editor wrapper (Neovim/Snacks) sends a buffer to.
 7. Tests: parser → `Request` unit tests; HTTP against a mock server (`httpmock` or a tiny `std::net` listener).
+
+**Implementation notes:**
+- HTTP client: `ureq` + rustls instead of `reqwest`. Simpler API for blocking HTTP, pure Rust TLS via ring crypto and webpki roots.
+- History path injectable via `ELASTIC_CONSOLE_HISTORY` env var (for testing without touching `$HOME`).
+- Piped mode exit codes: 0 = all requests completed (including HTTP 4xx/5xx), 1 = parse error or network error.
+- "Run request under cursor" deferred: reedline doesn't expose cursor position at submit time. Current behavior runs all requests in buffer. Follow-up: need custom Validator or ReedlineEvent to access buffer position.
+- Kitty keyboard enhancement enabled (`use_kitty_keyboard_enhancement(true)`). Alt+Enter works as fallback.
+
+**Dev environment:**
+- The private grammar repo (`tree-sitter-elasticsearch-console`) requires GitHub auth. Build commands need:
+  ```
+  export CARGO_HOME=/tmp/cargo-home CARGO_NET_GIT_FETCH_WITH_CLI=true \
+         GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=credential.https://github.com.helper \
+         GIT_CONFIG_VALUE_0='!gh auth git-credential'
+  ```
+- If using nono sandbox, add `--allow /usr/include:read` for C compiler headers (tree-sitter native code).
 
 ### Phase 2: syntax highlighting (≈ 1 day)
 
