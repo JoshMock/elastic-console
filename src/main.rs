@@ -5,6 +5,7 @@ mod output;
 mod parse;
 mod repl;
 mod runner;
+mod vars;
 
 use parse::Request;
 use std::env;
