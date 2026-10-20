@@ -122,7 +122,7 @@ Defining variables (decision): REPL commands, kept in memory for the session onl
 
 ### Phase 4 (stretch): LSP-like completion
 
-1. **Live cluster data** ✅ code done, pending manual TTY check (decisions): index, alias, and data stream names from one call, `GET /_resolve/index/*` ([docs](https://www.elastic.co/docs/api/doc/elasticsearch/operation/operation-indices-resolve-index)). Default `expand_wildcards=open`, so hidden/system indices are excluded. Fetched lazily on the first Tab inside an `{index}` slot, then cached for 60 s. Only `{index}` params are filled; `{name}` is too ambiguous (aliases, templates, pipelines, …). A failed fetch falls back silently to the static template list (also caches empty for 60 s to avoid retry storm).
+1. **Live cluster data** ✅ done (verified in a real terminal) (decisions): index, alias, and data stream names from one call, `GET /_resolve/index/*` ([docs](https://www.elastic.co/docs/api/doc/elasticsearch/operation/operation-indices-resolve-index)). Default `expand_wildcards=open`, so hidden/system indices are excluded. Fetched lazily on the first Tab inside an `{index}` slot, then cached for 60 s. Only `{index}` params are filled; `{name}` is too ambiguous (aliases, templates, pipelines, …). A failed fetch falls back silently to the static template list (also caches empty for 60 s to avoid retry storm).
    - `src/index_source.rs`: fetch, parse, 60 s cache with injected clock for testing.
    - `src/complete.rs`: `with_connection(conn)` for live mode; detects `{index}` slot in templates.
    - Ordering: live index names first, then static template matches (real indices outrank expansions of a partial name like `/book/_count`).
