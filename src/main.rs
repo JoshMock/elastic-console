@@ -1,3 +1,4 @@
+mod highlight;
 mod http;
 mod output;
 mod parse;

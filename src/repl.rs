@@ -1,3 +1,4 @@
+use crate::highlight::SyntaxHighlighter;
 use crate::http::execute;
 use crate::output::print_response;
 use crate::parse::parse;
@@ -44,9 +45,12 @@ pub fn run_interactive(conn: &Connection, history_path: &Path) -> std::io::Resul
     // Ctrl+C = clear input (handled by reedline as CtrlC signal)
     // Ctrl+D = exit (handled by reedline as CtrlD signal)
 
+    let highlighter = SyntaxHighlighter::new();
+
     let mut line_editor = Reedline::create()
         .with_history(Box::new(history))
         .with_edit_mode(Box::new(reedline::Emacs::new(keybindings)))
+        .with_highlighter(Box::new(highlighter))
         .use_kitty_keyboard_enhancement(true);
 
     let prompt = EsPrompt;
