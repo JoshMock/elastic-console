@@ -86,13 +86,21 @@ Why `reedline`: it has the needed traits: `Highlighter`, `Completer`, `Hinter`, 
 - Red-green TDD: tests verify text preservation and styling for method/path segments.
 - Highlights method, path, comments, and JSON values/punctuation. Object keys stay unstyled: the grammar has no named node for them (grammar gap 3).
 
-### Phase 3: simple autocomplete (≈ 2 days)
+### Phase 3: simple autocomplete ✅ code done, pending manual TTY check
 
 Static, offline, no cluster round trip.
 
 1. **Methods** at line start: `GET HEAD DELETE POST PUT`.
 2. **Paths** (decision: one embedded list from spec `main`, stack schema only; no serverless/version switching): build a list from the [elasticsearch-specification](https://github.com/elastic/elasticsearch-specification) `output/schema/schema.json`. Each endpoint has `urls[].methods` and `urls[].path` (e.g. `/_internal/desired_balance`). Strip it down at build time to `(method, path-template)` pairs and embed with `include_str!`. The full schema is ~11 MB; the stripped list is small.
 3. Completion uses the tree-sitter node under the cursor (`method` vs `path`) to decide what to offer.
+
+**Implementation notes:**
+- `scripts/gen_endpoints.py` reads schema.json (arg or downloads) → `data/endpoints.txt` (893 endpoints, 28KB).
+- `src/complete.rs`: `EndpointCompleter` implementing `reedline::Completer`.
+- Plain text context detection (heuristic: body starts with `{`, `[`, or whitespace+non-uppercase).
+- Path matching segment-wise: `{param}` matches any typed non-empty segment; last segment prefix-matched.
+- Tab opens ColumnarMenu; keybinding `UntilFound([Menu("completion_menu"), MenuNext])`.
+- 12 unit tests covering method prefix, path completion, param substitution, method filtering, span correctness, querystring/body exclusion, multiline buffers.
 
 ### Phase 3.5: `${var}` variables (after upstream grammar PR)
 
