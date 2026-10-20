@@ -1,12 +1,13 @@
+use crate::complete::EndpointCompleter;
 use crate::highlight::SyntaxHighlighter;
 use crate::http::execute;
 use crate::output::print_response;
 use crate::parse::parse;
 use crate::Connection;
 use reedline::{
-    default_emacs_keybindings, EditCommand, FileBackedHistory, KeyCode, KeyModifiers, Prompt,
-    PromptEditMode, PromptHistorySearch, PromptHistorySearchStatus, Reedline, ReedlineEvent,
-    Signal,
+    default_emacs_keybindings, ColumnarMenu, EditCommand, FileBackedHistory, KeyCode,
+    KeyModifiers, MenuBuilder, Prompt, PromptEditMode, PromptHistorySearch,
+    PromptHistorySearchStatus, Reedline, ReedlineEvent, ReedlineMenu, Signal,
 };
 use std::borrow::Cow;
 use std::io::{stdout, Write};
@@ -42,15 +43,29 @@ pub fn run_interactive(conn: &Connection, history_path: &Path) -> std::io::Resul
     // Alt+Enter = Submit (fallback for terminals that don't distinguish Ctrl+Enter)
     keybindings.add_binding(KeyModifiers::ALT, KeyCode::Enter, ReedlineEvent::Submit);
 
+    // Tab = open completion menu or cycle through suggestions
+    keybindings.add_binding(
+        KeyModifiers::NONE,
+        KeyCode::Tab,
+        ReedlineEvent::UntilFound(vec![
+            ReedlineEvent::Menu("completion_menu".to_string()),
+            ReedlineEvent::MenuNext,
+        ]),
+    );
+
     // Ctrl+C = clear input (handled by reedline as CtrlC signal)
     // Ctrl+D = exit (handled by reedline as CtrlD signal)
 
     let highlighter = SyntaxHighlighter::new();
+    let completer = EndpointCompleter::new();
+    let completion_menu = ColumnarMenu::default().with_name("completion_menu");
 
     let mut line_editor = Reedline::create()
         .with_history(Box::new(history))
         .with_edit_mode(Box::new(reedline::Emacs::new(keybindings)))
         .with_highlighter(Box::new(highlighter))
+        .with_completer(Box::new(completer))
+        .with_menu(ReedlineMenu::EngineCompleter(Box::new(completion_menu)))
         .use_kitty_keyboard_enhancement(true);
 
     let prompt = EsPrompt;

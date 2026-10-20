@@ -1,3 +1,4 @@
+mod complete;
 mod highlight;
 mod http;
 mod output;
