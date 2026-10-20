@@ -86,7 +86,7 @@ Why `reedline`: it has the needed traits: `Highlighter`, `Completer`, `Hinter`, 
 - Red-green TDD: tests verify text preservation and styling for method/path segments.
 - Highlights method, path, comments, and JSON values/punctuation. Object keys stay unstyled: the grammar has no named node for them (grammar gap 3).
 
-### Phase 3: simple autocomplete ✅ code done, pending manual TTY check
+### Phase 3: simple autocomplete ✅ done (Tab menu + Enter-to-accept verified in a real terminal)
 
 Static, offline, no cluster round trip.
 
