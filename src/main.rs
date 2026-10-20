@@ -2,6 +2,7 @@ mod complete;
 mod highlight;
 mod http;
 mod index_source;
+mod mapping_source;
 mod output;
 mod parse;
 mod repl;
