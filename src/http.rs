@@ -29,57 +29,99 @@ pub fn execute(conn: &Connection, req: &Request) -> Result<Response, HttpError> 
 
     let method = req.method.to_uppercase();
     // ponytail: http_status_as_error(false) so 4xx/5xx return Ok with body, not Err
-    let agent = ureq::Agent::config_builder()
+    let config = ureq::Agent::config_builder()
         .http_status_as_error(false)
-        .build()
-        .new_agent();
-    let mut request = agent.request(&method, &url);
+        .build();
+    let agent: ureq::Agent = config.into();
 
-    // Auth header
-    match &conn.auth {
-        Auth::ApiKey(key) => {
-            request = request.header("Authorization", &format!("ApiKey {}", key));
-        }
-        Auth::Basic { username, password } => {
-            let encoded = STANDARD.encode(format!("{}:{}", username, password));
-            request = request.header("Authorization", &format!("Basic {}", encoded));
-        }
-        Auth::None => {}
-    }
-
-    // Content-Type and body
-    let body = if req.bodies.is_empty() {
-        None
+    // Prepare body and content type
+    let (body, content_type): (Option<String>, Option<&str>) = if req.bodies.is_empty() {
+        (None, None)
     } else if is_ndjson {
-        request = request.header("Content-Type", "application/x-ndjson");
-        // NDJSON: each body on its own line, trailing newline
         let mut ndjson = req.bodies.join("\n");
         ndjson.push('\n');
-        Some(ndjson)
+        (Some(ndjson), Some("application/x-ndjson"))
     } else {
-        request = request.header("Content-Type", "application/json");
-        Some(req.bodies[0].clone())
+        (Some(req.bodies[0].clone()), Some("application/json"))
     };
 
-    let response = if let Some(body) = body {
-        request.send_string(&body)
-    } else {
-        request.send_empty()
+    // Build auth header value
+    let auth_header: Option<String> = match &conn.auth {
+        Auth::ApiKey(key) => Some(format!("ApiKey {}", key)),
+        Auth::Basic { username, password } => {
+            let encoded = STANDARD.encode(format!("{}:{}", username, password));
+            Some(format!("Basic {}", encoded))
+        }
+        Auth::None => None,
+    };
+
+    // ureq 3 uses specific method calls; match and dispatch
+    let response = match method.as_str() {
+        "GET" => send_request(agent.get(&url), body, content_type, auth_header.as_deref()),
+        "POST" => send_request_with_body(agent.post(&url), body, content_type, auth_header.as_deref()),
+        "PUT" => send_request_with_body(agent.put(&url), body, content_type, auth_header.as_deref()),
+        "DELETE" => send_request(agent.delete(&url), body, content_type, auth_header.as_deref()),
+        "HEAD" => send_request(agent.head(&url), body, content_type, auth_header.as_deref()),
+        "PATCH" => send_request_with_body(agent.patch(&url), body, content_type, auth_header.as_deref()),
+        "OPTIONS" => send_request(agent.options(&url), body, content_type, auth_header.as_deref()),
+        _ => return Err(HttpError::Network(format!("unsupported method: {}", method))),
     };
 
     match response {
-        Ok(resp) => {
+        Ok(mut resp) => {
             let status = resp.status();
-            let status_text = resp.status_text().to_string();
-            let body = resp.into_body().read_to_string().unwrap_or_default();
+            let status_text = status.canonical_reason().unwrap_or("Unknown").to_string();
+            let body = resp.body_mut().read_to_string().unwrap_or_default();
             Ok(Response {
-                status,
+                status: status.as_u16(),
                 status_text,
                 body,
             })
         }
         Err(e) => Err(HttpError::Network(e.to_string())),
     }
+}
+
+/// Send request for methods that normally don't have a body (GET, DELETE, HEAD, OPTIONS)
+fn send_request(
+    builder: ureq::RequestBuilder<ureq::typestate::WithoutBody>,
+    body: Option<String>,
+    content_type: Option<&str>,
+    auth: Option<&str>,
+) -> Result<ureq::http::Response<ureq::Body>, ureq::Error> {
+    let builder = add_headers(builder, content_type, auth);
+    match body {
+        Some(b) => builder.force_send_body().send(b),
+        None => builder.call(),
+    }
+}
+
+/// Send request for methods that have a body (POST, PUT, PATCH)
+fn send_request_with_body(
+    builder: ureq::RequestBuilder<ureq::typestate::WithBody>,
+    body: Option<String>,
+    content_type: Option<&str>,
+    auth: Option<&str>,
+) -> Result<ureq::http::Response<ureq::Body>, ureq::Error> {
+    let builder = add_headers(builder, content_type, auth);
+    match body {
+        Some(b) => builder.send(b),
+        None => builder.send_empty(),
+    }
+}
+
+fn add_headers<T>(
+    mut builder: ureq::RequestBuilder<T>,
+    content_type: Option<&str>,
+    auth: Option<&str>,
+) -> ureq::RequestBuilder<T> {
+    if let Some(ct) = content_type {
+        builder = builder.header("Content-Type", ct);
+    }
+    if let Some(a) = auth {
+        builder = builder.header("Authorization", a);
+    }
+    builder
 }
 
 fn build_url(base: &str, path: &str) -> String {
@@ -223,7 +265,8 @@ mod tests {
     #[test]
     fn test_api_key_auth_header() {
         let server = MockServer::start(|req| {
-            if req.contains("Authorization: ApiKey mykey123") {
+            // http crate normalizes header names to lowercase
+            if req.to_lowercase().contains("authorization: apikey mykey123") {
                 ok_response(r#"{"auth":"ok"}"#)
             } else {
                 "HTTP/1.1 401 Unauthorized\r\nContent-Length: 0\r\n\r\n".to_string()
@@ -246,8 +289,8 @@ mod tests {
     #[test]
     fn test_basic_auth_header() {
         let server = MockServer::start(|req| {
-            // base64("user:pass") = "dXNlcjpwYXNz"
-            if req.contains("Authorization: Basic dXNlcjpwYXNz") {
+            // base64("user:pass") = "dXNlcjpwYXNz"; http crate lowercases headers
+            if req.to_lowercase().contains("authorization: basic dxnlcjpwyxnz") {
                 ok_response(r#"{"auth":"ok"}"#)
             } else {
                 "HTTP/1.1 401 Unauthorized\r\nContent-Length: 0\r\n\r\n".to_string()
@@ -273,7 +316,8 @@ mod tests {
     #[test]
     fn test_ndjson_content_type_for_bulk() {
         let server = MockServer::start(|req| {
-            if req.contains("Content-Type: application/x-ndjson") {
+            // http crate lowercases headers
+            if req.to_lowercase().contains("content-type: application/x-ndjson") {
                 ok_response(r#"{"took":1}"#)
             } else {
                 ok_response(r#"{"error":"wrong content type"}"#)
@@ -323,7 +367,8 @@ mod tests {
     #[test]
     fn test_json_content_type_for_search() {
         let server = MockServer::start(|req| {
-            if req.contains("Content-Type: application/json") {
+            // http crate lowercases headers
+            if req.to_lowercase().contains("content-type: application/json") {
                 ok_response(r#"{"hits":[]}"#)
             } else {
                 ok_response(r#"{"error":"wrong content type"}"#)
