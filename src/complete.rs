@@ -163,7 +163,15 @@ impl EndpointCompleter {
         let mut seen = std::collections::HashSet::new();
         let mut suggestions = Vec::new();
 
-        // Static template suggestions first
+        // Live index names first: real indices outrank template expansions of a partial name
+        if let Some(live_suggestions) = self.live_index_suggestions(&path, typed_path, span) {
+            for s in live_suggestions {
+                if seen.insert(s.value.clone()) {
+                    suggestions.push(s);
+                }
+            }
+        }
+
         for (m, template) in &self.endpoints {
             if m != method {
                 continue;
@@ -186,15 +194,6 @@ impl EndpointCompleter {
                         append_whitespace: false,
                         match_indices: None,
                     });
-                }
-            }
-        }
-
-        // Live index names when in an {index} slot
-        if let Some(live_suggestions) = self.live_index_suggestions(&path, typed_path, span) {
-            for s in live_suggestions {
-                if seen.insert(s.value.clone()) {
-                    suggestions.push(s);
                 }
             }
         }
@@ -501,19 +500,13 @@ mod tests {
     }
 
     #[test]
-    fn static_templates_before_live_indexes() {
-        // When both match, static templates should come first
-        let mut c = completer_with_live_indexes(vec!["my-logs".into()]);
-        let results: Vec<String> = suggestions_from_result(c.complete("GET /", 5))
+    fn live_indexes_before_static_templates() {
+        // GET /book: the real index must rank above template expansions like /book/_count
+        let mut c = completer_with_live_indexes(vec!["bookmarks".into()]);
+        let results: Vec<String> = suggestions_from_result(c.complete("GET /book", 9))
             .into_iter().map(|s| s.value).collect();
-
-        // Find first static (starts with /_) and first live
-        let first_static = results.iter().position(|s| s.starts_with("/_"));
-        let first_live = results.iter().position(|s| s == "/my-logs");
-
-        if let (Some(static_pos), Some(live_pos)) = (first_static, first_live) {
-            assert!(static_pos < live_pos, "static templates should come before live indexes");
-        }
+        assert_eq!(results.first().map(String::as_str), Some("/bookmarks"), "got {:?}", results);
+        assert!(results.contains(&"/book/_count".to_string()), "templates still offered: {:?}", results);
     }
 
     #[test]
