@@ -13,7 +13,12 @@ use std::path::Path;
 
 const HISTORY_SIZE: usize = 10000;
 
+fn banner(conn: &Connection) -> String {
+    format!("connected to {}", conn.url)
+}
+
 pub fn run_interactive(conn: &Connection, history_path: &Path) -> std::io::Result<()> {
+    println!("{}", banner(conn));
     // Create parent directory if needed
     if let Some(parent) = history_path.parent() {
         std::fs::create_dir_all(parent)?;
@@ -125,5 +130,22 @@ impl Prompt for EsPrompt {
             "({}reverse-search: {}) ",
             prefix, history_search.term
         ))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::Auth;
+
+    #[test]
+    fn banner_shows_url_but_not_secret() {
+        let conn = Connection {
+            url: "https://es.example:9200".into(),
+            auth: Auth::ApiKey("s3cret".into()),
+        };
+        let b = banner(&conn);
+        assert!(b.contains("https://es.example:9200"));
+        assert!(!b.contains("s3cret"));
     }
 }

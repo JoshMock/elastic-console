@@ -6,7 +6,7 @@ edition = "2024"
 [dependencies]
 tree-sitter = "0.25"
 # Pin to commit cca641d4 (private repo, requires auth)
-tree-sitter-elasticsearch-console = { git = "https://github.com/elastic/tree-sitter-elasticsearch-console", rev = "cca641d4527cd3b6211de1a31040cc524e683c6d" }
+tree-sitter-elasticsearch-console = { git = "ssh://git@github.com/elastic/tree-sitter-elasticsearch-console.git", rev = "cca641d4527cd3b6211de1a31040cc524e683c6d" }
 # ureq with rustls for pure-Rust TLS (ring crypto, webpki roots)
 ureq = { version = "3", default-features = false, features = ["rustls"] }
 reedline = "0.52"
