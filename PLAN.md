@@ -133,7 +133,13 @@ Defining variables (decision): REPL commands, kept in memory for the session onl
    - Trigger: cursor in JSON string in KEY position (after `{` or `,`, before `:`). Not in triple-quoted strings. Text-based scan (grammar has no named key node).
    - Completion value = field name only (no quotes). Span = typed prefix after opening quote.
    - 9 mapping_source tests + 9 completer integration tests.
-3. **Body keys** from the spec `types`: walk the request type of the matched endpoint to offer valid keys at the cursor's JSON path.
+3. **Body keys** ✅ code done, pending manual TTY check: suggest valid keys for the cursor's JSON path from elasticsearch-specification types.
+   - Decision: text-based JSON path scan, no grammar changes (grammar has no named key node, but text scan works).
+   - `scripts/gen_body_keys.py`: generates `data/body_keys.json` from schema.json (364 endpoints, 1251 types, 365KB).
+   - `src/body_keys.rs`: loads spec via `include_str!` + `serde_json` (lazy `OnceLock`). `keys_at(endpoint_key, json_path)` walks types; `json_path_at_cursor(text)` scans body text.
+   - Handles `inherits` (merge parent), `type_alias` (follow), `array_of` (transparent), `union_of` (merge keys), `dictionary_of` (mark as `"*"` → field names only).
+   - Completer: match method+path to endpoint key, compute JSON path, offer spec keys (prefix match) first, then field names, dedupe. At `"*"` level, only field names.
+   - 21 tests (15 body_keys + 6 completer integration).
 4. Split this into a library crate so the same engine can back an LSP server later ([elasticsearch-lsp idea](https://github.com/JoshMock/llm-wiki/blob/main/spacetime/elasticsearch-lsp.md)).
 
 ## Grammar gaps (upstream PRs to the grammar repo)
@@ -142,7 +148,7 @@ Read from [`grammar.js`](https://github.com/elastic/tree-sitter-elasticsearch-co
 
 1. No `PATCH` method.
 2. No `${var}` variable interpolation.
-3. Object keys are hidden rules (`_object_key_val`, `_string_single`), so keys cannot be highlighted or used as completion context. Phase 4 needs a named `json_key`/`pair` node.
+3. Object keys are hidden rules (`_object_key_val`, `_string_single`), so keys cannot be highlighted. However, Phase 4 body key completion works via text-based JSON path scan, no grammar change needed.
 4. Bodies must be objects (`body: repeat1(seq($._object, '\n'))`).
 5. No `kbn:` prefix for Kibana API requests ([Console docs](https://www.elastic.co/docs/explore-analyze/query-filter/tools/console)). Out of scope for now: the REPL targets Elasticsearch only and ignores `ELASTIC_KIBANA_*`.
 6. Not published to crates.io; use a git dependency pinned to a commit.
