@@ -65,7 +65,7 @@ Why `reedline`: it has the needed traits: `Highlighter`, `Completer`, `Hinter`, 
 - HTTP client: `ureq` + rustls instead of `reqwest`. Simpler API for blocking HTTP, pure Rust TLS via ring crypto and webpki roots.
 - History path injectable via `ELASTIC_CONSOLE_HISTORY` env var (for testing without touching `$HOME`).
 - Piped mode exit codes: 0 = all requests completed (including HTTP 4xx/5xx), 1 = parse error or network error.
-- "Run request under cursor" deferred: reedline doesn't expose cursor position at submit time. Current behavior runs all requests in buffer. Follow-up: need custom Validator or ReedlineEvent to access buffer position.
+- Run-under-cursor implemented: reedline's `Highlighter::highlight(line, cursor)` is called with cursor position on every repaint, including the final repaint during `submit_buffer`. Store cursor in shared `Arc<AtomicUsize>`, read after `Signal::Success`, use `select_request_at_cursor(buffer, cursor)` to pick the request. Behaviour: cursor inside request → that request; between requests or on blank line → nearest preceding; no preceding → first. Single request in buffer: unchanged. Piped mode: runs all (unchanged).
 - Kitty keyboard enhancement enabled (`use_kitty_keyboard_enhancement(true)`). Alt+Enter works as fallback.
 
 **Dev environment:**
