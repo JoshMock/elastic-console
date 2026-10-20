@@ -30,19 +30,15 @@ fn replace_triple_quoted(text: &str, vars: &HashMap<String, String>) -> String {
     let mut i = 0;
 
     while i < bytes.len() {
-        // Look for """${
-        if bytes[i..].starts_with(b"\"\"\"${") {
-            if let Some((name, end)) = parse_var_name(&bytes[i + 5..]) {
-                // Check for }"""
-                let name_end = i + 5 + name.len();
-                if bytes[name_end..].starts_with(b"}\"\"\"") {
-                    if let Some(val) = vars.get(name) {
-                        // Use serde_json to properly escape as JSON string
-                        result.push_str(&serde_json::to_string(val).unwrap());
-                        i = name_end + 4;
-                        continue;
-                    }
-                }
+        // Look for """${name}"""
+        if bytes[i..].starts_with(b"\"\"\"${") 
+            && let Some((name, _)) = parse_var_name(&bytes[i + 5..])
+        {
+            let name_end = i + 5 + name.len();
+            if bytes[name_end..].starts_with(b"}\"\"\"") && let Some(val) = vars.get(name) {
+                result.push_str(&serde_json::to_string(val).unwrap());
+                i = name_end + 4;
+                continue;
             }
         }
         result.push(bytes[i] as char);
@@ -58,24 +54,20 @@ fn replace_double_quoted(text: &str, vars: &HashMap<String, String>) -> String {
     let mut i = 0;
 
     while i < bytes.len() {
-        // Look for "${
-        if bytes[i..].starts_with(b"\"${") {
-            if let Some((name, _)) = parse_var_name(&bytes[i + 3..]) {
-                let name_end = i + 3 + name.len();
-                // Check for }"
-                if bytes[name_end..].starts_with(b"}\"") {
-                    if let Some(val) = vars.get(name) {
-                        // If value parses as JSON bool/number/array/object, insert raw
-                        if is_json_non_string(val) {
-                            result.push_str(val);
-                        } else {
-                            // Otherwise, JSON-escape it inside quotes
-                            result.push_str(&serde_json::to_string(val).unwrap());
-                        }
-                        i = name_end + 2;
-                        continue;
-                    }
+        // Look for "${name}"
+        if bytes[i..].starts_with(b"\"${") 
+            && let Some((name, _)) = parse_var_name(&bytes[i + 3..])
+        {
+            let name_end = i + 3 + name.len();
+            if bytes[name_end..].starts_with(b"}\"") && let Some(val) = vars.get(name) {
+                // If value parses as JSON bool/number/array/object, insert raw
+                if is_json_non_string(val) {
+                    result.push_str(val);
+                } else {
+                    result.push_str(&serde_json::to_string(val).unwrap());
                 }
+                i = name_end + 2;
+                continue;
             }
         }
         result.push(bytes[i] as char);
@@ -91,16 +83,17 @@ fn replace_bare(text: &str, vars: &HashMap<String, String>) -> String {
     let mut i = 0;
 
     while i < bytes.len() {
-        if bytes[i..].starts_with(b"${") {
-            if let Some((name, _)) = parse_var_name(&bytes[i + 2..]) {
-                let name_end = i + 2 + name.len();
-                if name_end < bytes.len() && bytes[name_end] == b'}' {
-                    if let Some(val) = vars.get(name) {
-                        result.push_str(val);
-                        i = name_end + 1;
-                        continue;
-                    }
-                }
+        if bytes[i..].starts_with(b"${") 
+            && let Some((name, _)) = parse_var_name(&bytes[i + 2..])
+        {
+            let name_end = i + 2 + name.len();
+            if name_end < bytes.len() 
+                && bytes[name_end] == b'}' 
+                && let Some(val) = vars.get(name) 
+            {
+                result.push_str(val);
+                i = name_end + 1;
+                continue;
             }
         }
         result.push(bytes[i] as char);
@@ -145,6 +138,56 @@ fn is_json_non_string(val: &str) -> bool {
         b'-' | b'0'..=b'9' => serde_json::from_str::<serde_json::Number>(trimmed).is_ok(),
         _ => false,
     }
+}
+
+/// Parse a `:set name value` command. Returns Some((name, value)) if valid.
+/// Value is the rest of the line after name, trimmed at end.
+pub fn parse_set_command(line: &str) -> Option<(String, String)> {
+    let trimmed = line.trim();
+    if !trimmed.starts_with(":set ") {
+        return None;
+    }
+    let rest = trimmed[5..].trim_start();
+    let mut chars = rest.chars().peekable();
+    let mut name = String::new();
+    
+    // Parse name [A-Za-z0-9_]+
+    while let Some(&c) = chars.peek() {
+        if c.is_ascii_alphanumeric() || c == '_' {
+            name.push(c);
+            chars.next();
+        } else {
+            break;
+        }
+    }
+    
+    if name.is_empty() {
+        return None;
+    }
+    
+    // Skip one space after name, rest is value
+    if chars.peek() == Some(&' ') {
+        chars.next();
+    }
+    let value: String = chars.collect();
+    Some((name, value.trim_end().to_string()))
+}
+
+/// Check if line is a `:vars` command.
+pub fn is_vars_command(line: &str) -> bool {
+    line.trim() == ":vars"
+}
+
+/// Check if line starts with `:` (is a command line).
+pub fn is_command(line: &str) -> bool {
+    line.trim_start().starts_with(':')
+}
+
+/// Format variables for display, sorted by name.
+pub fn format_vars(vars: &HashMap<String, String>) -> String {
+    let mut pairs: Vec<_> = vars.iter().collect();
+    pairs.sort_by_key(|(k, _)| *k);
+    pairs.iter().map(|(k, v)| format!("{} = {}", k, v)).collect::<Vec<_>>().join("\n")
 }
 
 #[cfg(test)]
@@ -219,5 +262,56 @@ mod tests {
     fn undefined_left_as_is_triple() {
         let v = HashMap::new();
         assert_eq!(substitute(r#"{"s":"""${n}"""}"#, &v), r#"{"s":"""${n}"""}"#);
+    }
+
+    #[test]
+    fn parse_set_with_value() {
+        assert_eq!(
+            parse_set_command(":set idx logs"),
+            Some(("idx".to_string(), "logs".to_string()))
+        );
+    }
+
+    #[test]
+    fn parse_set_empty_value() {
+        assert_eq!(
+            parse_set_command(":set n "),
+            Some(("n".to_string(), "".to_string()))
+        );
+    }
+
+    #[test]
+    fn parse_set_no_value() {
+        assert_eq!(
+            parse_set_command(":set n"),
+            Some(("n".to_string(), "".to_string()))
+        );
+    }
+
+    #[test]
+    fn parse_set_redefine_wins() {
+        // Simulate two :set commands for the same name
+        let mut v = HashMap::new();
+        if let Some((name, val)) = parse_set_command(":set x first") {
+            v.insert(name, val);
+        }
+        if let Some((name, val)) = parse_set_command(":set x second") {
+            v.insert(name, val);
+        }
+        assert_eq!(v.get("x"), Some(&"second".to_string()));
+    }
+
+    #[test]
+    fn vars_output_sorted() {
+        let v = vars(&[("zeta", "z"), ("alpha", "a")]);
+        assert_eq!(format_vars(&v), "alpha = a\nzeta = z");
+    }
+
+    #[test]
+    fn is_command_detects_colon_prefix() {
+        assert!(is_command(":set x 1"));
+        assert!(is_command(":vars"));
+        assert!(is_command("  :unknown"));
+        assert!(!is_command("GET /"));
     }
 }

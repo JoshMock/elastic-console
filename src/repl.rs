@@ -3,7 +3,9 @@ use crate::highlight::SyntaxHighlighter;
 use crate::http::execute;
 use crate::output::print_response;
 use crate::parse::parse;
+use crate::vars::{format_vars, is_command, is_vars_command, parse_set_command, substitute};
 use crate::Connection;
+use std::collections::HashMap;
 use reedline::{
     default_emacs_keybindings, ColumnarMenu, Keybindings, EditCommand, FileBackedHistory, KeyCode,
     KeyModifiers, MenuBuilder, Prompt, PromptEditMode, PromptHistorySearch,
@@ -78,6 +80,7 @@ pub fn run_interactive(conn: &Connection, history_path: &Path) -> std::io::Resul
         .use_kitty_keyboard_enhancement(true);
 
     let prompt = EsPrompt;
+    let mut vars: HashMap<String, String> = HashMap::new();
 
     loop {
         match line_editor.read_line(&prompt) {
@@ -86,7 +89,24 @@ pub fn run_interactive(conn: &Connection, history_path: &Path) -> std::io::Resul
                     continue;
                 }
 
-                match parse(&buffer) {
+                // If buffer starts with :, treat each line as a command
+                if is_command(&buffer) {
+                    for line in buffer.lines() {
+                        if let Some((name, val)) = parse_set_command(line) {
+                            vars.insert(name, val);
+                        } else if is_vars_command(line) {
+                            println!("{}", format_vars(&vars));
+                        } else if is_command(line) {
+                            eprintln!("unknown command: {}", line.trim());
+                        }
+                        // Non-command lines in a command buffer are ignored
+                    }
+                    continue;
+                }
+
+                // Substitute variables and parse as request
+                let substituted = substitute(&buffer, &vars);
+                match parse(&substituted) {
                     Ok(requests) => {
                         let mut out = stdout();
                         for req in &requests {
