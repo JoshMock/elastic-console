@@ -122,7 +122,7 @@ Defining variables (decision): REPL commands, kept in memory for the session onl
 
 ### Phase 4 (stretch): LSP-like completion
 
-1. **Live cluster data**: index, alias, and data-stream names (`GET _cat/indices?format=json`, `_alias`), cached with a TTL. Fill `{index}` path params.
+1. **Live cluster data** (decisions): index, alias, and data stream names from one call, `GET /_resolve/index/*` ([docs](https://www.elastic.co/docs/api/doc/elasticsearch/operation/operation-indices-resolve-index)). Default `expand_wildcards=open`, so hidden/system indices are excluded. Fetched lazily on the first Tab inside an `{index}` slot, then cached for 60 s. Only `{index}` params are filled; `{name}` is too ambiguous (aliases, templates, pipelines, …). A failed fetch falls back silently to the static template list.
 2. **Field names** from `GET <index>/_mapping` for body keys like `match`, `term`, `sort`.
 3. **Body keys** from the spec `types`: walk the request type of the matched endpoint to offer valid keys at the cursor's JSON path.
 4. Split this into a library crate so the same engine can back an LSP server later ([elasticsearch-lsp idea](https://github.com/JoshMock/llm-wiki/blob/main/spacetime/elasticsearch-lsp.md)).
