@@ -1,13 +1,43 @@
+use crate::index_source::IndexSource;
+use crate::Connection;
 use reedline::{CompletionResult, Completer, Span, Suggestion};
 
 const METHODS: &[&str] = &["DELETE", "GET", "HEAD", "POST", "PUT"];
 
+// ponytail: type alias avoids clippy::type_complexity
+type BoxedIndexSource = IndexSource<Box<dyn Fn() -> Vec<String> + Send>>;
+
 pub struct EndpointCompleter {
     endpoints: Vec<(String, String)>, // (method, path_template)
+    index_source: Option<BoxedIndexSource>,
 }
 
 impl EndpointCompleter {
+    /// Static-only completion (no live cluster connection).
+    #[allow(dead_code)] // ponytail: valid API entry, used in tests
     pub fn new() -> Self {
+        Self::with_endpoints_and_source(Self::load_endpoints(), None)
+    }
+
+    /// Create with a live cluster connection for index completion.
+    pub fn with_connection(conn: Connection) -> Self {
+        Self::with_endpoints_and_source(Self::load_endpoints(), Some(IndexSource::new(conn)))
+    }
+
+    /// Create with injected index source (for testing).
+    #[cfg(test)]
+    pub fn with_index_source(source: BoxedIndexSource) -> Self {
+        Self::with_endpoints_and_source(Self::load_endpoints(), Some(source))
+    }
+
+    fn with_endpoints_and_source(
+        endpoints: Vec<(String, String)>,
+        index_source: Option<BoxedIndexSource>,
+    ) -> Self {
+        Self { endpoints, index_source }
+    }
+
+    fn load_endpoints() -> Vec<(String, String)> {
         let data = include_str!("../data/endpoints.txt");
         let mut endpoints = Vec::new();
         for line in data.lines() {
@@ -18,7 +48,7 @@ impl EndpointCompleter {
                 endpoints.push((method.to_string(), path.to_string()));
             }
         }
-        Self { endpoints }
+        endpoints
     }
 
     /// Find position of cursor's line start (byte offset)
@@ -123,7 +153,7 @@ impl EndpointCompleter {
         Some(result_segs.join("/"))
     }
 
-    fn complete_path(&self, method: &str, typed_path: &str, span: Span) -> Vec<Suggestion> {
+    fn complete_path(&mut self, method: &str, typed_path: &str, span: Span) -> Vec<Suggestion> {
         let path = if typed_path.starts_with('/') {
             typed_path.to_string()
         } else {
@@ -133,6 +163,7 @@ impl EndpointCompleter {
         let mut seen = std::collections::HashSet::new();
         let mut suggestions = Vec::new();
 
+        // Static template suggestions first
         for (m, template) in &self.endpoints {
             if m != method {
                 continue;
@@ -159,7 +190,79 @@ impl EndpointCompleter {
             }
         }
 
+        // Live index names when in an {index} slot
+        if let Some(live_suggestions) = self.live_index_suggestions(&path, typed_path, span) {
+            for s in live_suggestions {
+                if seen.insert(s.value.clone()) {
+                    suggestions.push(s);
+                }
+            }
+        }
+
         suggestions
+    }
+
+    /// Check if cursor is in an {index} slot and return matching live index names.
+    fn live_index_suggestions(&mut self, path: &str, typed_path: &str, span: Span) -> Option<Vec<Suggestion>> {
+        let index_source = self.index_source.as_mut()?;
+
+        let typed_segs: Vec<&str> = path.split('/').collect();
+        // typed_segs[0] is empty (before leading /), typed_segs[1] is first real segment
+        if typed_segs.len() < 2 {
+            return None;
+        }
+
+        let cursor_seg_idx = typed_segs.len() - 1; // Index of segment being completed
+        let prefix = typed_segs[cursor_seg_idx];
+
+        // Check if any matching template has {index} at this segment position
+        let has_index_slot = self.endpoints.iter().any(|(_, template)| {
+            let tmpl_segs: Vec<&str> = template.split('/').collect();
+            if cursor_seg_idx >= tmpl_segs.len() {
+                return false;
+            }
+            // Only offer index completion if this segment is {index}
+            // and all prior segments match (either literally or as params)
+            if tmpl_segs[cursor_seg_idx] != "{index}" {
+                return false;
+            }
+            // Verify prior segments match
+            for i in 1..cursor_seg_idx {
+                let typed = typed_segs.get(i).unwrap_or(&"");
+                let tmpl = tmpl_segs.get(i).unwrap_or(&"");
+                let is_param = tmpl.starts_with('{') && tmpl.ends_with('}');
+                if !is_param && *typed != *tmpl {
+                    return false;
+                }
+            }
+            true
+        });
+
+        if !has_index_slot {
+            return None;
+        }
+
+        // Get live index names matching prefix
+        let names = index_source.names_with_prefix(prefix);
+        let has_slash = typed_path.starts_with('/');
+
+        Some(names.into_iter().map(|name| {
+            let value = if has_slash {
+                format!("/{}", name)
+            } else {
+                name
+            };
+            Suggestion {
+                value,
+                display_override: None,
+                description: None,
+                style: None,
+                extra: None,
+                span,
+                append_whitespace: false,
+                match_indices: None,
+            }
+        }).collect())
     }
 }
 
@@ -361,5 +464,80 @@ mod tests {
         let results = complete("GET /", 5);
         // Should have many suggestions
         assert!(results.len() > 10, "should have many path suggestions, got {}", results.len());
+    }
+
+    // --- Live index completion tests ---
+
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Arc;
+
+
+    fn completer_with_live_indexes(indexes: Vec<String>) -> EndpointCompleter {
+        use crate::index_source::IndexSource;
+        let source = IndexSource::new_from_boxed(Box::new(move || indexes.clone()));
+        EndpointCompleter::with_index_source(source)
+    }
+
+    #[test]
+    fn live_index_in_index_slot() {
+        // GET /my + Tab should offer live indexes starting with "my"
+        let mut c = completer_with_live_indexes(vec!["my-logs".into(), "my-metrics".into(), "other".into()]);
+        let results: Vec<String> = suggestions_from_result(c.complete("GET /my", 7))
+            .into_iter().map(|s| s.value).collect();
+
+        assert!(results.contains(&"/my-logs".to_string()), "expected /my-logs in {:?}", results);
+        assert!(results.contains(&"/my-metrics".to_string()), "expected /my-metrics in {:?}", results);
+        assert!(!results.contains(&"/other".to_string()), "should not include non-matching /other");
+    }
+
+    #[test]
+    fn static_templates_still_work_with_live_source() {
+        // Static templates like /_cat should still complete
+        let mut c = completer_with_live_indexes(vec!["my-logs".into()]);
+        let results: Vec<String> = suggestions_from_result(c.complete("GET /_ca", 8))
+            .into_iter().map(|s| s.value).collect();
+
+        assert!(results.iter().any(|s| s.starts_with("/_cat")), "expected /_cat in {:?}", results);
+    }
+
+    #[test]
+    fn static_templates_before_live_indexes() {
+        // When both match, static templates should come first
+        let mut c = completer_with_live_indexes(vec!["my-logs".into()]);
+        let results: Vec<String> = suggestions_from_result(c.complete("GET /", 5))
+            .into_iter().map(|s| s.value).collect();
+
+        // Find first static (starts with /_) and first live
+        let first_static = results.iter().position(|s| s.starts_with("/_"));
+        let first_live = results.iter().position(|s| s == "/my-logs");
+
+        if let (Some(static_pos), Some(live_pos)) = (first_static, first_live) {
+            assert!(static_pos < live_pos, "static templates should come before live indexes");
+        }
+    }
+
+    #[test]
+    fn later_segment_uses_static_completion() {
+        // GET /my-logs/_se should complete to /_search from templates, not offer live indexes
+        let mut c = completer_with_live_indexes(vec!["my-logs".into()]);
+        let results: Vec<String> = suggestions_from_result(c.complete("GET /my-logs/_se", 16))
+            .into_iter().map(|s| s.value).collect();
+
+        assert!(results.iter().any(|s| s.contains("_search")), "expected _search in {:?}", results);
+    }
+
+    #[test]
+    fn no_live_fetch_on_method_completion() {
+        // Method completion should not trigger a fetch
+        let call_count = Arc::new(AtomicUsize::new(0));
+        let cc = call_count.clone();
+        use crate::index_source::IndexSource;
+        let source = IndexSource::new_from_boxed(Box::new(
+            move || { cc.fetch_add(1, Ordering::SeqCst); vec![] },
+        ));
+        let mut c = EndpointCompleter::with_index_source(source);
+
+        c.complete("G", 1); // Method completion
+        assert_eq!(call_count.load(Ordering::SeqCst), 0, "should not fetch on method completion");
     }
 }

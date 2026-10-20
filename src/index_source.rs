@@ -72,11 +72,21 @@ pub struct IndexSource<F> {
     clock: fn() -> Instant,
 }
 
-impl IndexSource<Box<dyn Fn() -> Vec<String>>> {
+impl IndexSource<Box<dyn Fn() -> Vec<String> + Send>> {
     /// Create a real IndexSource that fetches from the cluster.
     pub fn new(conn: Connection) -> Self {
         Self {
             fetch_fn: Box::new(move || fetch_index_names(&conn)),
+            cache: None,
+            clock: Instant::now,
+        }
+    }
+
+    /// Create from an already-boxed fetch function (for testing).
+    #[cfg(test)]
+    pub fn new_from_boxed(fetch_fn: Box<dyn Fn() -> Vec<String> + Send>) -> Self {
+        Self {
+            fetch_fn,
             cache: None,
             clock: Instant::now,
         }

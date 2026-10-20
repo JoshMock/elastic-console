@@ -68,7 +68,7 @@ pub fn run_interactive(conn: &Connection, history_path: &Path) -> std::io::Resul
     // Ctrl+D = exit (handled by reedline as CtrlD signal)
 
     let highlighter = SyntaxHighlighter::new();
-    let completer = EndpointCompleter::new();
+    let completer = EndpointCompleter::with_connection(conn.clone());
     let completion_menu = ColumnarMenu::default().with_name("completion_menu");
 
     let mut line_editor = Reedline::create()
