@@ -1,7 +1,9 @@
+use crate::body_keys;
 use crate::index_source::IndexSource;
 use crate::mapping_source::MappingSource;
 use crate::Connection;
 use reedline::{CompletionResult, Completer, Span, Suggestion};
+use std::collections::HashSet;
 
 const METHODS: &[&str] = &["DELETE", "GET", "HEAD", "POST", "PUT"];
 
@@ -104,7 +106,7 @@ impl EndpointCompleter {
         None
     }
 
-    /// Complete field names from index mapping when in JSON key position.
+    /// Complete keys in JSON body: spec keys first, then field names.
     fn complete_fields(&mut self, buffer: &str, pos: usize) -> Option<Vec<Suggestion>> {
         // Check if we're in key position
         if !is_in_key_position(buffer, pos) {
@@ -113,35 +115,124 @@ impl EndpointCompleter {
 
         // Find the request this body belongs to
         let request_line = Self::find_request_line(buffer, pos)?;
-        let path = request_line.split_whitespace().nth(1)?;
-        let index = extract_index_from_path(path)?;
-
-        // Get mapping source
-        let mapping_source = self.mapping_source.as_mut()?;
+        let mut parts = request_line.split_whitespace();
+        let method = parts.next()?;
+        let typed_path = parts.next()?;
 
         // Find the key prefix being typed
-        // Look backwards from pos to find the opening quote of the current string
         let before = &buffer[..pos];
         let quote_pos = before.rfind('"')?;
         let prefix = &buffer[quote_pos + 1..pos];
+        let span = Span::new(quote_pos + 1, pos);
 
-        // Get matching fields
-        let fields = mapping_source.fields_with_prefix(&index, prefix);
-        if fields.is_empty() {
+        // Extract body text (everything after the request line)
+        let request_line_end = buffer.find(request_line).unwrap_or(0) + request_line.len();
+        let body_text = &buffer[request_line_end..pos];
+
+        // Compute JSON path
+        let (json_path, _typed_prefix) = body_keys::json_path_at_cursor(body_text);
+
+        let mut suggestions = Vec::new();
+        let mut seen = HashSet::new();
+
+        // Get spec keys at this path (if we can match an endpoint)
+        let endpoint_key = self.find_endpoint_key(method, typed_path);
+        let at_dictionary_level = if let Some(ref key) = endpoint_key {
+            let spec_keys = body_keys::keys_at(key, &json_path);
+            if spec_keys.is_empty() {
+                // Empty means dictionary level or unknown path
+                true
+            } else {
+                for key in spec_keys {
+                    if key.starts_with(prefix) && seen.insert(key.clone()) {
+                        suggestions.push(Suggestion {
+                            value: key,
+                            display_override: None,
+                            description: None,
+                            style: None,
+                            extra: None,
+                            span,
+                            append_whitespace: false,
+                            match_indices: None,
+                        });
+                    }
+                }
+                false
+            }
+        } else {
+            false
+        };
+
+        // Add field names from mapping source
+        // Always show at dictionary level, otherwise show if we have a mapping source
+        if let Some(index) = extract_index_from_path(typed_path)
+            && let Some(mapping_source) = self.mapping_source.as_mut()
+        {
+            let fields = mapping_source.fields_with_prefix(&index, prefix);
+            for field in fields {
+                if seen.insert(field.clone()) {
+                    suggestions.push(Suggestion {
+                        value: field,
+                        display_override: None,
+                        description: None,
+                        style: None,
+                        extra: None,
+                        span,
+                        append_whitespace: false,
+                        match_indices: None,
+                    });
+                }
+            }
+        }
+
+        // If at dictionary level and no suggestions, don't show empty menu
+        if suggestions.is_empty() && at_dictionary_level {
             return None;
         }
 
-        let span = Span::new(quote_pos + 1, pos);
-        Some(fields.into_iter().map(|f| Suggestion {
-            value: f,
-            display_override: None,
-            description: None,
-            style: None,
-            extra: None,
-            span,
-            append_whitespace: false,
-            match_indices: None,
-        }).collect())
+        if suggestions.is_empty() {
+            None
+        } else {
+            Some(suggestions)
+        }
+    }
+
+    /// Find the endpoint key ("METHOD /path-template") for a typed path.
+    fn find_endpoint_key(&self, method: &str, typed_path: &str) -> Option<String> {
+        let path = if typed_path.starts_with('/') {
+            typed_path.to_string()
+        } else {
+            format!("/{}", typed_path)
+        };
+
+        // Find best-matching template
+        for (m, template) in &self.endpoints {
+            if m != method {
+                continue;
+            }
+            if self.path_matches_template(&path, template) {
+                return Some(format!("{} {}", method, template));
+            }
+        }
+        None
+    }
+
+    /// Check if a typed path matches a template (without partial suffix matching).
+    fn path_matches_template(&self, typed: &str, template: &str) -> bool {
+        let typed_segs: Vec<&str> = typed.split('/').collect();
+        let tmpl_segs: Vec<&str> = template.split('/').collect();
+
+        if typed_segs.len() != tmpl_segs.len() {
+            return false;
+        }
+
+        for (t, tmpl) in typed_segs.iter().zip(tmpl_segs.iter()) {
+            let is_param = tmpl.starts_with('{') && tmpl.ends_with('}');
+            if !is_param && t != tmpl {
+                return false;
+            }
+        }
+        true
     }
 
     /// Complete methods by prefix (case-insensitive)
@@ -747,5 +838,90 @@ mod tests {
         // The key starts at position 21 (after {" ), prefix "ti" is 2 chars
         assert_eq!(s.span.start, 22, "span start should be after opening quote");
         assert_eq!(s.span.end, pos, "span end should be at cursor");
+    }
+
+    // --- Body key completion (from spec) tests ---
+
+    #[test]
+    fn body_key_completion_query_bool() {
+        // POST /_search with {"query":{"bo - should suggest "bool" from spec
+        let mut c = EndpointCompleter::new();
+        let buffer = "POST /_search\n{\"query\":{\"bo";
+        let pos = buffer.len();
+        let results: Vec<String> = suggestions_from_result(c.complete(buffer, pos))
+            .into_iter().map(|s| s.value).collect();
+
+        assert!(results.contains(&"bool".to_string()), "expected 'bool' in {:?}", results);
+        assert!(results.contains(&"boosting".to_string()), "expected 'boosting' in {:?}", results);
+    }
+
+    #[test]
+    fn body_key_completion_span_correct() {
+        // Verify span covers the typed prefix
+        let mut c = EndpointCompleter::new();
+        let buffer = "POST /_search\n{\"query\":{\"bo";
+        let pos = buffer.len();
+        let suggestions = suggestions_from_result(c.complete(buffer, pos));
+
+        assert!(!suggestions.is_empty(), "should have suggestions");
+        let s = &suggestions[0];
+        // "bo" is 2 chars, quote at pos-3, so span.start = pos-2
+        assert_eq!(s.span.start, pos - 2, "span start should be after opening quote");
+        assert_eq!(s.span.end, pos, "span end should be at cursor");
+    }
+
+    #[test]
+    fn body_key_at_dictionary_yields_field_names_only() {
+        // POST /books/_search {"query":{"match":{"ti - match is dictionary, should yield fields only
+        use crate::mapping_source::MappingSource;
+        let source = MappingSource::new_from_boxed(Box::new(|idx: &str| {
+            if idx == "books" {
+                vec!["title".into(), "title.keyword".into()]
+            } else {
+                vec![]
+            }
+        }));
+        let mut c = EndpointCompleter::with_mapping_source(source);
+
+        let buffer = "POST /books/_search\n{\"query\":{\"match\":{\"ti";
+        let pos = buffer.len();
+        let results: Vec<String> = suggestions_from_result(c.complete(buffer, pos))
+            .into_iter().map(|s| s.value).collect();
+
+        // Should have field names (from mapping)
+        assert!(results.contains(&"title".to_string()), "expected 'title' field in {:?}", results);
+        assert!(results.contains(&"title.keyword".to_string()), "expected 'title.keyword' field in {:?}", results);
+        // Should NOT have spec keys like "bool" since we're in dictionary
+        assert!(!results.contains(&"bool".to_string()), "should not have spec keys at dictionary level: {:?}", results);
+    }
+
+    #[test]
+    fn body_key_root_includes_expected_keys() {
+        // POST /_search with {" - root level should have query, size, aggs, sort
+        let mut c = EndpointCompleter::new();
+        let buffer = "POST /_search\n{\"";
+        let pos = buffer.len();
+        let results: Vec<String> = suggestions_from_result(c.complete(buffer, pos))
+            .into_iter().map(|s| s.value).collect();
+
+        assert!(results.contains(&"query".to_string()), "expected 'query' in {:?}", results);
+        assert!(results.contains(&"size".to_string()), "expected 'size' in {:?}", results);
+        assert!(results.contains(&"sort".to_string()), "expected 'sort' in {:?}", results);
+        // aggs or aggregations
+        assert!(results.contains(&"aggs".to_string()) || results.contains(&"aggregations".to_string()),
+            "expected 'aggs' or 'aggregations' in {:?}", results);
+    }
+
+    #[test]
+    fn body_key_unknown_endpoint_no_spec_keys() {
+        // Unknown endpoint should return no suggestions (no spec keys)
+        let mut c = EndpointCompleter::new();
+        let buffer = "POST /unknown/endpoint\n{\"que";
+        let pos = buffer.len();
+        let results = suggestions_from_result(c.complete(buffer, pos));
+
+        // Should be empty (no matching endpoint in spec)
+        assert!(results.is_empty(), "unknown endpoint should give no spec keys: {:?}",
+            results.iter().map(|s| &s.value).collect::<Vec<_>>());
     }
 }

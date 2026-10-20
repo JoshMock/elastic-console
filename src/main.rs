@@ -1,3 +1,4 @@
+mod body_keys;
 mod complete;
 mod highlight;
 mod http;
