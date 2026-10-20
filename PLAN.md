@@ -51,7 +51,7 @@ Why `reedline`: it has the needed traits: `Highlighter`, `Completer`, `Hinter`, 
 2. Register locally: `elastic extension create console --path ./target/release`  (`--path` registers an existing dir without overwriting).
 3. Verify: `elastic console` prints the URL from the active context.
 
-### Phase 1: MVP REPL ✅ code done, pending manual TTY check
+### Phase 1: MVP REPL ✅ done (verified in a real terminal: Ctrl+Enter and Alt+Enter both submit; 200 OK against a live cluster)
 
 1. `reedline` loop with file history at `~/.elastic/console_history`.
 2. Key bindings from "Key bindings" above, including the fallback binding.
