@@ -345,6 +345,14 @@ mod tests {
     }
 
     #[test]
+    fn select_cursor_on_blank_between_second_and_third() {
+        // Distinguishes "nearest preceding" from "first request"
+        let input = "GET /a\n\nGET /b\n\n\n\nGET /c\n";
+        let req = select_request_at_cursor(input, 17).unwrap().unwrap();
+        assert_eq!(req.path, "/b");
+    }
+
+    #[test]
     fn select_cursor_at_buffer_end() {
         let input = "GET /\n\nPOST /_search\n";
         let len = input.len();
