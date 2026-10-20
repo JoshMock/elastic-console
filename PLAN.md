@@ -45,7 +45,7 @@ Why `reedline`: it has the needed traits: `Highlighter`, `Completer`, `Hinter`, 
 
 ## Phases
 
-### Phase 0: skeleton (≈ half a day)
+### Phase 0: skeleton ✅ done (verified via `elastic console`)
 
 1. `cargo new elastic-console`; binary prints the connection info (like the [demo extension](https://github.com/elastic/cli/tree/main/examples/extensions/basic)).
 2. Register locally: `elastic extension create console --path ./target/release`  (`--path` registers an existing dir without overwriting).
