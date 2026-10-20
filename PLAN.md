@@ -71,11 +71,20 @@ Why `reedline`: it has the needed traits: `Highlighter`, `Completer`, `Hinter`, 
 **Dev environment:**
 - The grammar is a path dependency on a local clone at `../elastic-neovim/tree-sitter-elasticsearch-console`. In the nono sandbox, build with `CARGO_HOME=/tmp/cargo-home` (`~/.cargo/registry` is read-only) and grant read on `/usr/include` for the C compiler.
 
-### Phase 2: syntax highlighting (≈ 1 day)
+### Phase 2: syntax highlighting ✅ code done, pending manual TTY check
 
 1. Load `queries/elasticsearch_console/highlights.scm` from the grammar crate.
 2. Map capture names (`@keyword`, `@function`, `@string`, `@number`, …) to `nu_ansi_term` styles; return a `StyledText` from `Highlighter::highlight`.
 3. Re-parse on each keystroke. Buffers are small; incremental parsing is not needed yet.
+
+**Implementation notes:**
+- Used direct `tree_sitter::Query` + `QueryCursor` approach (shorter than tree-sitter-highlight crate).
+- `SyntaxHighlighter` implements `reedline::Highlighter`.
+- Parser wrapped in `RefCell` for interior mutability (&self requirement).
+- Maps captures: keyword→cyan bold, function/path→yellow, string→green, number→purple, comment→dark gray.
+- Handles incomplete/invalid input gracefully (ERROR nodes while typing).
+- Red-green TDD: tests verify text preservation and styling for method/path segments.
+- Grammar highlights request line (method, path) but not JSON body details (expected behavior).
 
 ### Phase 3: simple autocomplete (≈ 2 days)
 
