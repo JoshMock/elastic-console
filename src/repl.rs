@@ -5,7 +5,7 @@ use crate::output::print_response;
 use crate::parse::parse;
 use crate::Connection;
 use reedline::{
-    default_emacs_keybindings, ColumnarMenu, EditCommand, FileBackedHistory, KeyCode,
+    default_emacs_keybindings, ColumnarMenu, Keybindings, EditCommand, FileBackedHistory, KeyCode,
     KeyModifiers, MenuBuilder, Prompt, PromptEditMode, PromptHistorySearch,
     PromptHistorySearchStatus, Reedline, ReedlineEvent, ReedlineMenu, Signal,
 };
@@ -19,22 +19,17 @@ fn banner(conn: &Connection) -> String {
     format!("connected to {}", conn.url)
 }
 
-pub fn run_interactive(conn: &Connection, history_path: &Path) -> std::io::Result<()> {
-    println!("{}", banner(conn));
-    // Create parent directory if needed
-    if let Some(parent) = history_path.parent() {
-        std::fs::create_dir_all(parent)?;
-    }
-
-    let history = FileBackedHistory::with_file(HISTORY_SIZE, history_path.to_path_buf())?;
-
+fn keybindings() -> Keybindings {
     let mut keybindings = default_emacs_keybindings();
 
-    // Enter = InsertNewline (instead of Submit)
+    // Enter = accept the open completion menu's selection, else InsertNewline (instead of Submit)
     keybindings.add_binding(
         KeyModifiers::NONE,
         KeyCode::Enter,
-        ReedlineEvent::Edit(vec![EditCommand::InsertNewline]),
+        ReedlineEvent::UntilFound(vec![
+            ReedlineEvent::MenuAccept,
+            ReedlineEvent::Edit(vec![EditCommand::InsertNewline]),
+        ]),
     );
 
     // Ctrl+Enter = Submit
@@ -52,6 +47,20 @@ pub fn run_interactive(conn: &Connection, history_path: &Path) -> std::io::Resul
             ReedlineEvent::MenuNext,
         ]),
     );
+
+    keybindings
+}
+
+pub fn run_interactive(conn: &Connection, history_path: &Path) -> std::io::Result<()> {
+    println!("{}", banner(conn));
+    // Create parent directory if needed
+    if let Some(parent) = history_path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+
+    let history = FileBackedHistory::with_file(HISTORY_SIZE, history_path.to_path_buf())?;
+
+    let keybindings = keybindings();
 
     // Ctrl+C = clear input (handled by reedline as CtrlC signal)
     // Ctrl+D = exit (handled by reedline as CtrlD signal)
@@ -156,6 +165,18 @@ impl Prompt for EsPrompt {
 mod tests {
     use super::*;
     use crate::Auth;
+
+    #[test]
+    fn enter_accepts_open_menu_before_inserting_newline() {
+        let event = keybindings().find_binding(KeyModifiers::NONE, KeyCode::Enter);
+        assert_eq!(
+            event,
+            Some(ReedlineEvent::UntilFound(vec![
+                ReedlineEvent::MenuAccept,
+                ReedlineEvent::Edit(vec![EditCommand::InsertNewline]),
+            ]))
+        );
+    }
 
     #[test]
     fn banner_shows_url_but_not_secret() {
