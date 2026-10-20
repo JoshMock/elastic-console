@@ -2,10 +2,12 @@ use crate::complete::EndpointCompleter;
 use crate::highlight::SyntaxHighlighter;
 use crate::http::execute;
 use crate::output::print_response;
-use crate::parse::parse;
+use crate::parse::select_request_at_cursor;
 use crate::vars::{format_vars, is_command, is_vars_command, parse_set_command, substitute};
 use crate::Connection;
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
 use reedline::{
     default_emacs_keybindings, ColumnarMenu, Keybindings, EditCommand, FileBackedHistory, KeyCode,
     KeyModifiers, MenuBuilder, Prompt, PromptEditMode, PromptHistorySearch,
@@ -67,7 +69,9 @@ pub fn run_interactive(conn: &Connection, history_path: &Path) -> std::io::Resul
     // Ctrl+C = clear input (handled by reedline as CtrlC signal)
     // Ctrl+D = exit (handled by reedline as CtrlD signal)
 
-    let highlighter = SyntaxHighlighter::new();
+    // ponytail: shared cursor position for run-under-cursor (approach b from PLAN)
+    let cursor_pos = Arc::new(AtomicUsize::new(0));
+    let highlighter = SyntaxHighlighter::with_cursor_tracker(cursor_pos.clone());
     let completer = EndpointCompleter::with_connection(conn.clone());
     let completion_menu = ColumnarMenu::default().with_name("completion_menu");
 
@@ -104,20 +108,20 @@ pub fn run_interactive(conn: &Connection, history_path: &Path) -> std::io::Resul
                     continue;
                 }
 
-                // Substitute variables and parse as request
+                // Substitute variables, select request under cursor
                 let substituted = substitute(&buffer, &vars);
-                match parse(&substituted) {
-                    Ok(requests) => {
+                let cursor = cursor_pos.load(Ordering::Relaxed);
+                match select_request_at_cursor(&substituted, cursor) {
+                    Ok(Some(req)) => {
                         let mut out = stdout();
-                        for req in &requests {
-                            match execute(conn, req) {
-                                Ok(resp) => print_response(&mut out, &resp),
-                                Err(e) => {
-                                    eprintln!("error: {}", e);
-                                }
-                            }
+                        match execute(conn, &req) {
+                            Ok(resp) => print_response(&mut out, &resp),
+                            Err(e) => eprintln!("error: {}", e),
                         }
                         let _ = out.flush();
+                    }
+                    Ok(None) => {
+                        eprintln!("no request found");
                     }
                     Err(e) => {
                         eprintln!("parse error: {}", e);

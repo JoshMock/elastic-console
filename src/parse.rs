@@ -36,7 +36,6 @@ pub fn parse(src: &str) -> Result<Vec<Request>, ParseError> {
 
 /// Find the request containing the given byte offset.
 /// ponytail: prepared for "run request under cursor" feature
-#[allow(dead_code)]
 pub fn request_at_offset(src: &str, offset: usize) -> Result<Option<Request>, ParseError> {
     let normalized = if src.ends_with('\n') {
         src.to_string()
@@ -57,6 +56,50 @@ pub fn request_at_offset(src: &str, offset: usize) -> Result<Option<Request>, Pa
         }
     }
     Ok(None)
+}
+
+/// Select the request to run based on cursor position (Kibana Console behaviour).
+/// - If cursor is inside a request: return that request
+/// - If cursor is between requests or on a blank line: return the nearest preceding request
+/// - If there's no preceding request: return the first one
+pub fn select_request_at_cursor(src: &str, cursor: usize) -> Result<Option<Request>, ParseError> {
+    // First try exact match
+    if let Some(req) = request_at_offset(src, cursor)? {
+        return Ok(Some(req));
+    }
+
+    // Cursor not inside a request - find nearest preceding or first
+    let normalized = if src.ends_with('\n') {
+        src.to_string()
+    } else {
+        format!("{}\n", src)
+    };
+
+    let tree = parse_tree(&normalized)?;
+    let root = tree.root_node();
+
+    let mut preceding: Option<Node> = None;
+    let mut first_req: Option<Node> = None;
+
+    for i in 0..root.named_child_count() {
+        if let Some(req_node) = root.named_child(i)
+            && req_node.kind() == "request"
+        {
+            if first_req.is_none() {
+                first_req = Some(req_node);
+            }
+            if req_node.end_byte() <= cursor {
+                preceding = Some(req_node);
+            }
+        }
+    }
+
+    // Return preceding if found, else first
+    let target = preceding.or(first_req);
+    match target {
+        Some(node) => extract_single_request(&node, &normalized).map(Some),
+        None => Ok(None),
+    }
 }
 
 fn parse_tree(src: &str) -> Result<Tree, ParseError> {
@@ -270,5 +313,70 @@ mod tests {
         let result = request_at_offset(input, 10).unwrap();
         assert!(result.is_some());
         assert_eq!(result.unwrap().method, "POST");
+    }
+
+    // --- select_request_at_cursor tests ---
+
+    #[test]
+    fn select_cursor_in_first_of_two() {
+        let input = "GET /\n\nPOST /_search\n";
+        // Cursor at position 2, inside "GET /"
+        let req = select_request_at_cursor(input, 2).unwrap().unwrap();
+        assert_eq!(req.method, "GET");
+        assert_eq!(req.path, "/");
+    }
+
+    #[test]
+    fn select_cursor_in_second_of_two() {
+        let input = "GET /\n\nPOST /_search\n";
+        // Cursor at position 10, inside "POST /_search"
+        let req = select_request_at_cursor(input, 10).unwrap().unwrap();
+        assert_eq!(req.method, "POST");
+        assert_eq!(req.path, "/_search");
+    }
+
+    #[test]
+    fn select_cursor_on_blank_between() {
+        let input = "GET /\n\nPOST /_search\n";
+        // Cursor at position 6 (the blank line between requests)
+        let req = select_request_at_cursor(input, 6).unwrap().unwrap();
+        // Should return preceding request (GET)
+        assert_eq!(req.method, "GET");
+    }
+
+    #[test]
+    fn select_cursor_at_buffer_end() {
+        let input = "GET /\n\nPOST /_search\n";
+        let len = input.len();
+        let req = select_request_at_cursor(input, len).unwrap().unwrap();
+        // Should return the last (preceding) request
+        assert_eq!(req.method, "POST");
+    }
+
+    #[test]
+    fn select_cursor_inside_body() {
+        let input = "POST /_search\n{\"query\": {}}\n";
+        // Cursor inside the body JSON
+        let req = select_request_at_cursor(input, 20).unwrap().unwrap();
+        assert_eq!(req.method, "POST");
+        assert_eq!(req.bodies.len(), 1);
+    }
+
+    #[test]
+    fn select_cursor_before_first_request() {
+        // Edge case: blank lines before first request
+        let input = "\n\nGET /\n";
+        // Cursor at position 0, before any request
+        let req = select_request_at_cursor(input, 0).unwrap().unwrap();
+        // Should return first request
+        assert_eq!(req.method, "GET");
+    }
+
+    #[test]
+    fn select_single_request_unchanged() {
+        let input = "GET /_cat/health\n";
+        let req = select_request_at_cursor(input, 5).unwrap().unwrap();
+        assert_eq!(req.method, "GET");
+        assert_eq!(req.path, "/_cat/health");
     }
 }

@@ -1,15 +1,26 @@
 use nu_ansi_term::{Color, Style};
 use reedline::{Highlighter, StyledText};
 use std::cell::RefCell;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
 use tree_sitter::{Parser, Query, QueryCursor, StreamingIterator};
 
 pub struct SyntaxHighlighter {
     parser: RefCell<Parser>,
     query: Query,
+    /// Shared cursor position, updated on every highlight() call.
+    /// ponytail: approach (b) from PLAN - highlighter gets cursor on final repaint before Submit returns.
+    cursor_pos: Arc<AtomicUsize>,
 }
 
 impl SyntaxHighlighter {
+    #[allow(dead_code)] // Used in tests
     pub fn new() -> Self {
+        Self::with_cursor_tracker(Arc::new(AtomicUsize::new(0)))
+    }
+
+    /// Create a highlighter that shares cursor position with the caller.
+    pub fn with_cursor_tracker(cursor_pos: Arc<AtomicUsize>) -> Self {
         let language = tree_sitter_elasticsearch_console::LANGUAGE;
         let mut parser = Parser::new();
         parser
@@ -24,6 +35,7 @@ impl SyntaxHighlighter {
         Self {
             parser: RefCell::new(parser),
             query,
+            cursor_pos,
         }
     }
 
@@ -45,7 +57,10 @@ impl SyntaxHighlighter {
 }
 
 impl Highlighter for SyntaxHighlighter {
-    fn highlight(&self, line: &str, _cursor: usize) -> StyledText {
+    fn highlight(&self, line: &str, cursor: usize) -> StyledText {
+        // Record cursor position for run-under-cursor feature
+        self.cursor_pos.store(cursor, Ordering::Relaxed);
+
         let tree = self.parser.borrow_mut().parse(line, None);
 
         let Some(tree) = tree else {
@@ -191,5 +206,18 @@ mod tests {
         assert_eq!(style_of("42"), Some(Color::Purple.normal()));
         assert_eq!(style_of("true"), Some(Color::Purple.normal()));
         assert_eq!(style_of("{"), Some(Color::White.normal()));
+    }
+
+    #[test]
+    fn test_cursor_tracking() {
+        let cursor_pos = Arc::new(AtomicUsize::new(0));
+        let h = SyntaxHighlighter::with_cursor_tracker(cursor_pos.clone());
+
+        // Simulate highlight calls as reedline would make them
+        h.highlight("GET /\nPOST /_search", 5);  // cursor at position 5
+        assert_eq!(cursor_pos.load(Ordering::Relaxed), 5);
+
+        h.highlight("GET /\nPOST /_search", 12); // cursor moved to position 12
+        assert_eq!(cursor_pos.load(Ordering::Relaxed), 12);
     }
 }
