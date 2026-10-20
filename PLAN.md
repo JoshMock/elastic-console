@@ -122,7 +122,11 @@ Defining variables (decision): REPL commands, kept in memory for the session onl
 
 ### Phase 4 (stretch): LSP-like completion
 
-1. **Live cluster data** (decisions): index, alias, and data stream names from one call, `GET /_resolve/index/*` ([docs](https://www.elastic.co/docs/api/doc/elasticsearch/operation/operation-indices-resolve-index)). Default `expand_wildcards=open`, so hidden/system indices are excluded. Fetched lazily on the first Tab inside an `{index}` slot, then cached for 60 s. Only `{index}` params are filled; `{name}` is too ambiguous (aliases, templates, pipelines, …). A failed fetch falls back silently to the static template list.
+1. **Live cluster data** ✅ code done, pending manual TTY check (decisions): index, alias, and data stream names from one call, `GET /_resolve/index/*` ([docs](https://www.elastic.co/docs/api/doc/elasticsearch/operation/operation-indices-resolve-index)). Default `expand_wildcards=open`, so hidden/system indices are excluded. Fetched lazily on the first Tab inside an `{index}` slot, then cached for 60 s. Only `{index}` params are filled; `{name}` is too ambiguous (aliases, templates, pipelines, …). A failed fetch falls back silently to the static template list (also caches empty for 60 s to avoid retry storm).
+   - `src/index_source.rs`: fetch, parse, 60 s cache with injected clock for testing.
+   - `src/complete.rs`: `with_connection(conn)` for live mode; detects `{index}` slot in templates.
+   - Ordering: static template matches first, then live index names.
+   - 14 tests (8 index_source + 6 completer integration).
 2. **Field names** from `GET <index>/_mapping` for body keys like `match`, `term`, `sort`.
 3. **Body keys** from the spec `types`: walk the request type of the matched endpoint to offer valid keys at the cursor's JSON path.
 4. Split this into a library crate so the same engine can back an LSP server later ([elasticsearch-lsp idea](https://github.com/JoshMock/llm-wiki/blob/main/spacetime/elasticsearch-lsp.md)).
