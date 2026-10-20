@@ -4,3 +4,13 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+tree-sitter = "0.24"
+# Pin to commit cca641d4 (private repo, requires auth)
+tree-sitter-elasticsearch-console = { git = "https://github.com/elastic/tree-sitter-elasticsearch-console", rev = "cca641d4527cd3b6211de1a31040cc524e683c6d" }
+# ponytail: ureq default-features=false for pure HTTP (no TLS) during development
+# Production: add rustls feature and webpki-roots for HTTPS support
+ureq = { version = "3", default-features = false }
+reedline = "0.52"
+nu-ansi-term = "0.50"
+serde_json = "1"
+base64 = "0.22"
