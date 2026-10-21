@@ -135,3 +135,7 @@ See [PLAN.md](PLAN.md) for architecture and implementation notes.
 6. **Grammar is not published to crates.io.** The dependency is a path reference to a local clone of the grammar repository.
 
 Limitations 1–4 are upstream grammar issues. Contributions to [tree-sitter-elasticsearch-console](https://github.com/elastic/tree-sitter-elasticsearch-console) are welcome.
+
+## License
+
+MIT, see [LICENSE](LICENSE).
