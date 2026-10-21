@@ -46,7 +46,7 @@ Command history is saved to `~/.elastic/console_history` (created on first run).
 
 Define and reference variables in requests:
 
-- `:set name value` – define or overwrite a variable (value is the rest of the line).
+- `:set name value` – define or overwrite a variable. The value is the rest of the line, taken literally: do **not** wrap strings in quotes. `:set idx products` sets `products`; `:set idx "products"` sets `"products"` (quotes included), which yields paths like `/"products"/_search`. Where a value lands in a JSON string, quoting is handled by the substitution rules below.
 - `:vars` – list all variables in alphabetical order.
 
 Variables are substituted before requests are sent:

@@ -71,6 +71,11 @@ fn main() {
         println!("  Ctrl+Enter  Run request (Alt+Enter as fallback)");
         println!("  Ctrl+C      Clear input");
         println!("  Ctrl+D      Exit");
+        println!();
+        println!("Variables:");
+        println!("  :set name value   Value is taken literally; don't quote strings (:set idx logs)");
+        println!("  :vars             List variables");
+        println!("  GET /${{idx}}/_search");
         return;
     }
 

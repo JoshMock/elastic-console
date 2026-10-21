@@ -115,7 +115,7 @@ Substitution rules, from the [Kibana Console docs](https://www.elastic.co/docs/e
 
 Defining variables (decision): REPL commands, kept in memory for the session only.
 
-- `:set name value`: define or overwrite. `value` is the rest of the line.
+- `:set name value`: define or overwrite. `value` is the rest of the line, taken literally; strings are not quoted (`:set idx logs`, not `:set idx "logs"`).
 - `:vars`: list all variables.
 - An undefined `${name}` is left as-is, matching Kibana ("replaced … if the variable exists").
 - Piped mode (decision): `:set` lines are processed in order with requests, so a script can define its own variables.
