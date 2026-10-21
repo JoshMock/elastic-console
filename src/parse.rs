@@ -155,25 +155,27 @@ fn extract_single_request(req_node: &Node, src: &str) -> Result<Request, ParseEr
                     }
                 }
                 "body" => {
-                    // Grammar update: body may contain named children (json_string) or unnamed tokens
-                    // If there are named children, extract each json_string
-                    // Otherwise, the body text is in the node's full span
-                    let named_count = child.named_child_count();
-                    if named_count > 0 {
-                        // Multiple json bodies (bulk/msearch)
-                        for j in 0..named_count {
-                            if let Some(json_node) = child.named_child(j) {
-                                let body_text = node_text(&json_node, src).trim().to_string();
-                                if !body_text.is_empty() {
-                                    bodies.push(body_text);
+                    // `_object` is hidden in the grammar, so an object's braces are direct
+                    // children of `body`; braces inside strings belong to `json_string` nodes.
+                    // Each top-level `{`..`}` pair is one body (several for _bulk/_msearch).
+                    let mut depth = 0;
+                    let mut start = 0;
+                    for k in 0..child.child_count() {
+                        let Some(tok) = child.child(k) else { continue };
+                        match tok.kind() {
+                            "{" => {
+                                if depth == 0 {
+                                    start = tok.start_byte();
+                                }
+                                depth += 1;
+                            }
+                            "}" => {
+                                depth -= 1;
+                                if depth == 0 {
+                                    bodies.push(src[start..tok.end_byte()].to_string());
                                 }
                             }
-                        }
-                    } else {
-                        // Single body - extract the full text
-                        let body_text = node_text(&child, src).trim().to_string();
-                        if !body_text.is_empty() {
-                            bodies.push(body_text);
+                            _ => {}
                         }
                     }
                 }
@@ -257,6 +259,18 @@ mod tests {
         assert_eq!(requests.len(), 1);
         assert_eq!(requests[0].method, "GET");
         assert_eq!(requests[0].path, "/");
+    }
+
+    #[test]
+    fn body_with_leaf_values_is_kept_whole() {
+        let reqs = parse("POST /x/_search\n{\"size\": 1, \"q\": {\"a\": \"b\"}}\n").unwrap();
+        assert_eq!(reqs[0].bodies, vec![r#"{"size": 1, "q": {"a": "b"}}"#]);
+    }
+
+    #[test]
+    fn multiline_and_bulk_bodies_split_per_top_level_object() {
+        let reqs = parse("POST /_bulk\n{\"index\": {\"_index\": \"t\"}}\n{\"n\": 1,\n \"s\": \"}\"}\n").unwrap();
+        assert_eq!(reqs[0].bodies, vec![r#"{"index": {"_index": "t"}}"#, "{\"n\": 1,\n \"s\": \"}\"}"]);
     }
 
     #[test]
