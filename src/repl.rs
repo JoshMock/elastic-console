@@ -3,7 +3,7 @@ use crate::highlight::SyntaxHighlighter;
 use crate::http::execute;
 use crate::output::print_response;
 use crate::parse::select_request_at_cursor;
-use crate::vars::{format_vars, is_command, is_vars_command, parse_set_command, substitute};
+use crate::vars::{format_vars, is_command, is_vars_command, parse_set_command, substitute_request};
 use crate::Connection;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -53,6 +53,15 @@ fn keybindings() -> Keybindings {
     );
 
     keybindings
+}
+
+/// Picks the request under the cursor and substitutes `${var}`s in it.
+fn request_to_run(
+    buffer: &str,
+    cursor: usize,
+    vars: &HashMap<String, String>,
+) -> Result<Option<crate::parse::Request>, crate::parse::ParseError> {
+    Ok(select_request_at_cursor(buffer, cursor)?.map(|r| substitute_request(r, vars)))
 }
 
 pub fn run_interactive(conn: &Connection, history_path: &Path) -> std::io::Result<()> {
@@ -109,9 +118,8 @@ pub fn run_interactive(conn: &Connection, history_path: &Path) -> std::io::Resul
                 }
 
                 // Substitute variables, select request under cursor
-                let substituted = substitute(&buffer, &vars);
                 let cursor = cursor_pos.load(Ordering::Relaxed);
-                match select_request_at_cursor(&substituted, cursor) {
+                match request_to_run(&buffer, cursor, &vars) {
                     Ok(Some(req)) => {
                         let mut out = stdout();
                         match execute(conn, &req) {
@@ -200,6 +208,14 @@ mod tests {
                 ReedlineEvent::Edit(vec![EditCommand::InsertNewline]),
             ]))
         );
+    }
+
+    #[test]
+    fn cursor_offset_refers_to_unsubstituted_buffer() {
+        let vars = HashMap::from([("i".to_string(), "a-very-long-index-name".to_string())]);
+        // Offset 13 is inside "GET /b" in the buffer as typed
+        let req = request_to_run("GET /${i}\n\nGET /b\n", 13, &vars).unwrap().unwrap();
+        assert_eq!(req.path, "/b");
     }
 
     #[test]

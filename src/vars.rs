@@ -1,3 +1,4 @@
+use crate::parse::Request;
 use std::collections::HashMap;
 
 /// Substitute `${var}` placeholders in request text with values from vars.
@@ -5,6 +6,16 @@ use std::collections::HashMap;
 /// JSON bool/number/array/object else quoted string, (3) any `${name}` → raw value,
 /// JSON-escaped if embedded inside a JSON string in the body.
 /// Undefined names are left as-is.
+/// Substitutes `${var}`s in an already-parsed request. Substituting after parsing keeps
+/// escaped values (`\"`) away from the grammar, which has no string escapes.
+pub fn substitute_request(req: Request, vars: &HashMap<String, String>) -> Request {
+    Request {
+        method: req.method,
+        path: substitute(&req.path, vars),
+        bodies: req.bodies.iter().map(|b| substitute(b, vars)).collect(),
+    }
+}
+
 pub fn substitute(text: &str, vars: &HashMap<String, String>) -> String {
     if vars.is_empty() {
         return text.to_string();
@@ -41,8 +52,10 @@ fn replace_triple_quoted(text: &str, vars: &HashMap<String, String>) -> String {
                 continue;
             }
         }
-        result.push(bytes[i] as char);
-        i += 1;
+        // Copy one whole UTF-8 character; pushing single bytes as chars garbles non-ASCII text.
+        let ch = text[i..].chars().next().unwrap();
+        result.push(ch);
+        i += ch.len_utf8();
     }
     result
 }
@@ -70,8 +83,10 @@ fn replace_double_quoted(text: &str, vars: &HashMap<String, String>) -> String {
                 continue;
             }
         }
-        result.push(bytes[i] as char);
-        i += 1;
+        // Copy one whole UTF-8 character; pushing single bytes as chars garbles non-ASCII text.
+        let ch = text[i..].chars().next().unwrap();
+        result.push(ch);
+        i += ch.len_utf8();
     }
     result
 }
@@ -142,8 +157,10 @@ fn replace_bare(text: &str, vars: &HashMap<String, String>) -> String {
             }
         }
         
-        result.push(bytes[i] as char);
-        i += 1;
+        // Copy one whole UTF-8 character; pushing single bytes as chars garbles non-ASCII text.
+        let ch = text[i..].chars().next().unwrap();
+        result.push(ch);
+        i += ch.len_utf8();
     }
     result
 }
@@ -256,6 +273,12 @@ mod tests {
 
     fn vars(pairs: &[(&str, &str)]) -> HashMap<String, String> {
         pairs.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect()
+    }
+
+    #[test]
+    fn non_ascii_text_preserved() {
+        let out = substitute("{\"q\": \"café ${v}\"}", &vars(&[("v", "x")]));
+        assert_eq!(out, "{\"q\": \"café x\"}");
     }
 
     #[test]

@@ -1,7 +1,7 @@
 use crate::http::{execute, HttpError};
 use crate::output::print_response;
 use crate::parse::{parse, ParseError};
-use crate::vars::{format_vars, is_command, is_vars_command, parse_set_command, substitute};
+use crate::vars::{format_vars, is_command, is_vars_command, parse_set_command, substitute_request};
 use crate::Connection;
 use std::collections::HashMap;
 use std::io::Write;
@@ -60,11 +60,8 @@ fn run_request_chunk<W: Write>(
     out: &mut W,
     vars: &HashMap<String, String>,
 ) -> Result<(), RunError> {
-    let substituted = substitute(chunk, vars);
-    let requests = parse(&substituted)?;
-
-    for req in &requests {
-        let resp = execute(conn, req)?;
+    for req in parse(chunk)? {
+        let resp = execute(conn, &substitute_request(req, vars))?;
         print_response(out, &resp);
         // ponytail: HTTP 4xx/5xx still means the request completed; not an error
         // Document: piped mode exits 0 on HTTP errors, non-zero only on parse/network errors
@@ -263,6 +260,25 @@ mod tests {
 
         // Server should have received /logs/_search, not /${idx}/_search
         assert_eq!(*received_path.lock().unwrap(), "/logs/_search");
+    }
+
+    #[test]
+    fn test_piped_embedded_value_with_quotes_is_sent_escaped() {
+        use std::sync::{Arc, Mutex};
+        let received = Arc::new(Mutex::new(String::new()));
+        let clone = Arc::clone(&received);
+        let server = MockServer::start(move |req| {
+            *clone.lock().unwrap() = req.to_string();
+            ok_response(r#"{}"#)
+        });
+        let conn = Connection { url: server.url(), auth: Auth::None };
+        let mut out = Vec::new();
+
+        let input = ":set v say \"hi\"\nPOST /x/_search\n{\"q\": \"a ${v} b\"}\n";
+        let result = run_all(input, &conn, &mut out);
+        assert!(result.is_ok(), "{:?}", result.err());
+        let got = received.lock().unwrap().clone();
+        assert!(got.contains(r#"{"q": "a say \"hi\" b"}"#), "{}", got);
     }
 
     #[test]
