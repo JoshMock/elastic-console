@@ -11,6 +11,7 @@
 | `src/http.rs` | ureq + rustls client; NDJSON for `_bulk`/`_msearch`; cfg(test) `MockServer` + `read_test_request` |
 | `src/repl.rs` | reedline loop, key bindings (`keybindings()`), banner |
 | `src/runner.rs` | piped mode |
+| `src/esql.rs` | `--esql` mode: wraps a query as `POST /_query?format=txt`, literal `${var}` replacement |
 | `src/vars.rs` | `:set`/`:vars`, `${var}` substitution |
 | `src/highlight.rs` | `reedline::Highlighter` from the grammar's `HIGHLIGHTS_QUERY`; also records the cursor offset |
 | `src/complete.rs` | `reedline::Completer`: methods, paths, live index names, body keys, field names |

@@ -1,5 +1,6 @@
 mod body_keys;
 mod complete;
+mod esql;
 mod highlight;
 mod http;
 mod index_source;
@@ -50,21 +51,25 @@ impl Connection {
     }
 }
 
-fn default_history_path() -> PathBuf {
+fn default_history_path(esql: bool) -> PathBuf {
     // ponytail: XDG_* is scrubbed by elastic CLI, so use $HOME directly
     let home = env::var("HOME").unwrap_or_else(|_| ".".to_string());
-    PathBuf::from(home).join(".elastic").join("console_history")
+    PathBuf::from(home).join(".elastic").join(if esql { "esql_history" } else { "console_history" })
 }
 
 fn main() {
     let args: Vec<String> = env::args().collect();
+    let esql = args.iter().any(|a| a == "--esql");
     if args.len() > 1 && (args[1] == "--help" || args[1] == "-h") {
-        println!("Usage: elastic-console");
+        println!("Usage: elastic-console [--esql]");
         println!();
         println!("Interactive Elasticsearch console. Type requests like:");
         println!("  GET /");
         println!("  POST /_search");
         println!("  {{\"query\": {{\"match_all\": {{}}}}}}");
+        println!();
+        println!("--esql: the input is one ES|QL query, sent to POST /_query?format=txt.");
+        println!("  Piped input: separate queries with a blank line.");
         println!();
         println!("Key bindings:");
         println!("  Enter       Insert newline");
@@ -97,7 +102,11 @@ fn main() {
         }
 
         let mut out = io::stdout();
-        if let Err(e) = runner::run_all(&input, &conn, &mut out) {
+        if let Err(e) = if esql {
+            runner::run_all_esql(&input, &conn, &mut out)
+        } else {
+            runner::run_all(&input, &conn, &mut out)
+        } {
             eprintln!("{}", e);
             std::process::exit(1);
         }
@@ -105,9 +114,9 @@ fn main() {
         // Interactive mode
         let history_path = env::var("ELASTIC_CONSOLE_HISTORY")
             .map(PathBuf::from)
-            .unwrap_or_else(|_| default_history_path());
+            .unwrap_or_else(|_| default_history_path(esql));
 
-        if let Err(e) = repl::run_interactive(&conn, &history_path) {
+        if let Err(e) = repl::run_interactive(&conn, &history_path, esql) {
             eprintln!("error: {}", e);
             std::process::exit(1);
         }
@@ -202,7 +211,7 @@ mod tests {
     #[test]
     fn test_default_history_path() {
         // Just verify it doesn't panic and contains expected components
-        let path = default_history_path();
+        let path = default_history_path(false);
         let path_str = path.to_string_lossy();
         assert!(path_str.contains(".elastic"));
         assert!(path_str.contains("console_history"));

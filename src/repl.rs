@@ -67,7 +67,7 @@ fn request_to_run(
     Ok(select_request_at_cursor(buffer, cursor)?.map(|r| substitute_request(r, vars)))
 }
 
-pub fn run_interactive(conn: &Connection, history_path: &Path) -> std::io::Result<()> {
+pub fn run_interactive(conn: &Connection, history_path: &Path, esql: bool) -> std::io::Result<()> {
     println!("{}", banner(conn));
     // Create parent directory if needed
     if let Some(parent) = history_path.parent() {
@@ -90,12 +90,16 @@ pub fn run_interactive(conn: &Connection, history_path: &Path) -> std::io::Resul
     let mut line_editor = Reedline::create()
         .with_history(Box::new(history))
         .with_edit_mode(Box::new(reedline::Emacs::new(keybindings)))
-        .with_highlighter(Box::new(highlighter))
-        .with_completer(Box::new(completer))
-        .with_menu(ReedlineMenu::EngineCompleter(Box::new(completion_menu)))
         .use_kitty_keyboard_enhancement(true);
+    // ponytail: no ES|QL highlighting/completion yet; add with an ES|QL grammar
+    if !esql {
+        line_editor = line_editor
+            .with_highlighter(Box::new(highlighter))
+            .with_completer(Box::new(completer))
+            .with_menu(ReedlineMenu::EngineCompleter(Box::new(completion_menu)));
+    }
 
-    let prompt = EsPrompt;
+    let prompt = EsPrompt(if esql { "esql> " } else { "es> " });
     let mut vars: HashMap<String, String> = HashMap::new();
 
     loop {
@@ -116,6 +120,14 @@ pub fn run_interactive(conn: &Connection, history_path: &Path) -> std::io::Resul
                             eprintln!("unknown command: {}", line.trim());
                         }
                         // Non-command lines in a command buffer are ignored
+                    }
+                    continue;
+                }
+
+                if esql {
+                    match execute(conn, &crate::esql::to_request(&buffer, &vars)) {
+                        Ok(resp) => print_response(&mut stdout(), &resp),
+                        Err(e) => eprintln!("error: {}", e),
                     }
                     continue;
                 }
@@ -162,11 +174,11 @@ pub fn run_interactive(conn: &Connection, history_path: &Path) -> std::io::Resul
     Ok(())
 }
 
-struct EsPrompt;
+struct EsPrompt(&'static str);
 
 impl Prompt for EsPrompt {
     fn render_prompt_left(&self) -> Cow<'_, str> {
-        Cow::Borrowed("es> ")
+        Cow::Borrowed(self.0)
     }
 
     fn render_prompt_right(&self) -> Cow<'_, str> {
