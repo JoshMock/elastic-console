@@ -1,0 +1,42 @@
+name: CI
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+env:
+  # Keep in sync with GRAMMAR_REF in release.yml.
+  GRAMMAR_REF: c4d575baa73522e416c36d2717a6c522ce44e6d8
+
+jobs:
+  test:
+    name: Test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    defaults:
+      run:
+        shell: bash
+        working-directory: elastic-repl
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          path: elastic-repl
+          persist-credentials: false
+
+      # Path dependency on ../elastic-neovim/tree-sitter-elasticsearch-console (private repo).
+      # Secrets are not available to PRs from forks, so those runs fail here.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          repository: elastic/tree-sitter-elasticsearch-console
+          ref: ${{ env.GRAMMAR_REF }}
+          token: ${{ secrets.GRAMMAR_REPO_TOKEN }}
+          path: elastic-neovim/tree-sitter-elasticsearch-console
+          persist-credentials: false
+
+      - name: Test
+        run: cargo test --locked

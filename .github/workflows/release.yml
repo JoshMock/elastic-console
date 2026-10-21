@@ -11,6 +11,7 @@ env:
   # (see Cargo.toml), so it is checked out next to this repo. Pinned to the commit from
   # elastic/tree-sitter-elasticsearch-console#6 (exports HIGHLIGHTS_QUERY); move to a
   # main commit once that PR merges.
+  # Keep in sync with GRAMMAR_REF in ci.yml.
   GRAMMAR_REF: c4d575baa73522e416c36d2717a6c522ce44e6d8
 
 jobs:

@@ -2,7 +2,7 @@
 
 A command-line Elasticsearch REPL for the [Elastic CLI](https://github.com/elastic/cli), modeled after the Kibana Dev Tools Console. Type requests like `GET /_search`, press Ctrl+Enter, and see the response. Syntax highlighting and completion are backed by [tree-sitter-elasticsearch-console](https://github.com/elastic/tree-sitter-elasticsearch-console).
 
-**Status:** Experimental. The Elastic CLI is in tech preview. This extension is tested with Elastic CLI 0.7.0 and targets the Elasticsearch API only (Kibana requests are out of scope).
+**Status:** Experimental. The Elastic CLI is in tech preview. This extension is tested with Elastic CLI 0.7.0 and targets the Elasticsearch API only; Kibana requests are out of scope.
 
 ## Install
 
@@ -15,7 +15,7 @@ The Elastic CLI's `elastic extension install` command does not work with this ex
 
 ### Build from source
 
-Requires a C compiler and the grammar repository cloned at `../elastic-neovim/tree-sitter-elasticsearch-console` (path dependency in `Cargo.toml`):
+Requires a C compiler and the grammar repository `elastic/tree-sitter-elasticsearch-console`, which is currently a private repo, hence the path dependency in `Cargo.toml`.
 
 ```bash
 cargo build --release
