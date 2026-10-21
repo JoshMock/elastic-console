@@ -6,6 +6,7 @@ mod http;
 mod index_source;
 mod mapping_source;
 mod output;
+mod pager;
 mod parse;
 mod repl;
 mod runner;
@@ -70,6 +71,9 @@ fn main() {
         println!();
         println!("--esql: the input is one ES|QL query, sent to POST /_query?format=txt.");
         println!("  Piped input: separate queries with a blank line.");
+        println!();
+        println!("Responses are shown in $ELASTIC_CONSOLE_PAGER (default: less -FRX).");
+        println!("  For collapsible JSON: ELASTIC_CONSOLE_PAGER=jless");
         println!();
         println!("Key bindings:");
         println!("  Enter       Insert newline");

@@ -1,7 +1,7 @@
 use crate::complete::EndpointCompleter;
 use crate::highlight::SyntaxHighlighter;
 use crate::http::execute;
-use crate::output::print_response;
+use crate::output::{print_body, print_status};
 use crate::parse::select_request_at_cursor;
 use crate::vars::{format_vars, is_command, is_vars_command, parse_set_command, substitute_request};
 use crate::Connection;
@@ -126,7 +126,7 @@ pub fn run_interactive(conn: &Connection, history_path: &Path, esql: bool) -> st
 
                 if esql {
                     match execute(conn, &crate::esql::to_request(&buffer, &vars)) {
-                        Ok(resp) => print_response(&mut stdout(), &resp),
+                        Ok(resp) => show(&resp),
                         Err(e) => eprintln!("error: {}", e),
                     }
                     continue;
@@ -136,12 +136,10 @@ pub fn run_interactive(conn: &Connection, history_path: &Path, esql: bool) -> st
                 let cursor = cursor_pos.load(Ordering::Relaxed);
                 match request_to_run(&buffer, cursor, &vars) {
                     Ok(Some(req)) => {
-                        let mut out = stdout();
                         match execute(conn, &req) {
-                            Ok(resp) => print_response(&mut out, &resp),
+                            Ok(resp) => show(&resp),
                             Err(e) => eprintln!("error: {}", e),
                         }
-                        let _ = out.flush();
                     }
                     Ok(None) => {
                         eprintln!("no request found");
@@ -172,6 +170,15 @@ pub fn run_interactive(conn: &Connection, history_path: &Path, esql: bool) -> st
     }
 
     Ok(())
+}
+
+/// Prints the status line, then pages the body.
+fn show(resp: &crate::http::Response) {
+    print_status(&mut stdout(), resp);
+    let _ = stdout().flush();
+    let mut body = Vec::new();
+    print_body(&mut body, resp);
+    crate::pager::page(&crate::pager::command(), &String::from_utf8_lossy(&body), &mut std::io::stdout());
 }
 
 struct EsPrompt(&'static str);
