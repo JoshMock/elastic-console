@@ -12,6 +12,7 @@
 | `src/repl.rs` | reedline loop, key bindings (`keybindings()`), banner |
 | `src/runner.rs` | piped mode |
 | `src/esql.rs` | `--esql` mode: wraps a query as `POST /_query?format=txt`, literal `${var}` replacement |
+| `src/pager.rs` | interactive response paging via `$ELASTIC_CONSOLE_PAGER` (default `less -FRX`); direct print on failure |
 | `src/vars.rs` | `:set`/`:vars`, `${var}` substitution |
 | `src/highlight.rs` | `reedline::Highlighter` from the grammar's `HIGHLIGHTS_QUERY`; also records the cursor offset |
 | `src/complete.rs` | `reedline::Completer`: methods, paths, live index names, body keys, field names |
