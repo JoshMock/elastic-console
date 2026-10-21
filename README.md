@@ -8,7 +8,7 @@ A command-line Elasticsearch REPL for the [Elastic CLI](https://github.com/elast
 
 The Elastic CLI's `elastic extension install` command does not work with this extension because it requires a pre-built binary. Manual installation:
 
-1. Download the binary for your platform from the [GitHub Releases](https://github.com/JoshMock/elastic-console/releases) page.
+1. Download the binary for your platform from the [GitHub Releases](https://github.com/JoshMock/elastic-console/releases) page: `elastic-console-<os>-<arch>` with `os` one of `linux`, `darwin`, `windows` and `arch` one of `amd64`, `arm64` (Windows: `elastic-console-windows-amd64.exe`). Check it against `SHA256SUMS` from the same release.
 2. Create `~/.elastic/extensions/elastic-console/` and move the binary there.
 3. Rename it to `elastic-console` and make it executable: `chmod +x ~/.elastic/extensions/elastic-console/elastic-console`.
 4. Register with the CLI: `elastic extension create console --path ~/.elastic/extensions/elastic-console`.
@@ -101,6 +101,13 @@ The Elastic CLI sets these automatically from the active context when running `e
 If you run the `elastic-console` binary directly (outside the CLI), you must export these variables yourself. Missing `ELASTIC_ES_URL` causes a non-zero exit with an error message.
 
 ## Development
+
+### Releasing
+
+Releases are automated with [release-please](https://github.com/googleapis/release-please) (`.github/workflows/release.yml`). Commit messages on `main` must follow [Conventional Commits](https://www.conventionalcommits.org/) (`feat:`, `fix:`, …); release-please uses them to choose the next semver version and write `CHANGELOG.md`. Merging the release PR it opens creates the tag and GitHub release, then the same workflow builds binaries for Linux, macOS and Windows (amd64/arm64) and uploads them with `SHA256SUMS`.
+
+The workflow needs a repository secret `GRAMMAR_REPO_TOKEN`: a fine-grained token with read access to the private `elastic/tree-sitter-elasticsearch-console` repo, which is checked out next to this one for the path dependency.
+
 
 Run tests:
 
