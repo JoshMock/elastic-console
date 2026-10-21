@@ -8,7 +8,7 @@ permissions:
 
 env:
   # Keep in sync with GRAMMAR_REF in release.yml.
-  GRAMMAR_REF: c4d575baa73522e416c36d2717a6c522ce44e6d8
+  GRAMMAR_REF: 18c9905e72c9645be787ec176f586024d5b52e00
 
 jobs:
   test:
