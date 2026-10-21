@@ -139,3 +139,5 @@ Limitations 1–4 are upstream grammar issues. Contributions to [tree-sitter-ela
 ## License
 
 MIT, see [LICENSE](LICENSE).
+
+Release binaries bundle [tree-sitter-elasticsearch-console](https://github.com/elastic/tree-sitter-elasticsearch-console) (Apache-2.0); its `LICENSE` and `NOTICE.txt` are attached to each GitHub release as `tree-sitter-elasticsearch-console.LICENSE` and `tree-sitter-elasticsearch-console.NOTICE.txt`.

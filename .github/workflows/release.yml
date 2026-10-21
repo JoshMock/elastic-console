@@ -106,17 +106,30 @@ jobs:
           cp "$bin" "$ASSET"
           gh release upload "$TAG" "$ASSET" --clobber --repo "$GITHUB_REPOSITORY"
 
-  checksums:
+  # The binaries bundle the Apache-2.0 tree-sitter grammar, whose license requires
+  # shipping its LICENSE and NOTICE with redistributions (sections 4a and 4d).
+  finalize:
     needs: [release-please, build]
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
-      - name: Upload SHA256SUMS
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          repository: elastic/tree-sitter-elasticsearch-console
+          ref: ${{ env.GRAMMAR_REF }}
+          token: ${{ secrets.GRAMMAR_REPO_TOKEN }}
+          path: grammar
+          persist-credentials: false
+
+      - name: Upload SHA256SUMS and third-party notices
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ needs.release-please.outputs.tag_name }}
         run: |
           gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern 'elastic-console-*'
           sha256sum elastic-console-* > SHA256SUMS
-          gh release upload "$TAG" SHA256SUMS --clobber --repo "$GITHUB_REPOSITORY"
+          cp grammar/LICENSE tree-sitter-elasticsearch-console.LICENSE
+          cp grammar/NOTICE.txt tree-sitter-elasticsearch-console.NOTICE.txt
+          gh release upload "$TAG" SHA256SUMS tree-sitter-elasticsearch-console.LICENSE \
+            tree-sitter-elasticsearch-console.NOTICE.txt --clobber --repo "$GITHUB_REPOSITORY"
