@@ -52,6 +52,9 @@ fn keybindings() -> Keybindings {
         ]),
     );
 
+    // Shift+Tab = cycle the completion menu backwards
+    keybindings.add_binding(KeyModifiers::SHIFT, KeyCode::BackTab, ReedlineEvent::MenuPrevious);
+
     keybindings
 }
 
@@ -216,6 +219,12 @@ mod tests {
         // Offset 13 is inside "GET /b" in the buffer as typed
         let req = request_to_run("GET /${i}\n\nGET /b\n", 13, &vars).unwrap().unwrap();
         assert_eq!(req.path, "/b");
+    }
+
+    #[test]
+    fn shift_tab_cycles_menu_backwards() {
+        let event = keybindings().find_binding(KeyModifiers::SHIFT, KeyCode::BackTab);
+        assert_eq!(event, Some(ReedlineEvent::MenuPrevious));
     }
 
     #[test]

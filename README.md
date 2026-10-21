@@ -34,6 +34,7 @@ Run `elastic console` with an active Elastic CLI context. The CLI sets the conne
 | Ctrl+Enter | Run request under cursor (or entire buffer if one request) |
 | Alt+Enter | Run request (fallback for terminals that don't distinguish Ctrl+Enter) |
 | Tab | Open completion menu, or cycle suggestions |
+| Shift+Tab | Cycle suggestions backwards |
 | Enter (in menu) | Accept selected completion |
 | Ctrl+C | Clear current input |
 | Ctrl+D | Exit |
