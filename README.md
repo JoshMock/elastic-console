@@ -93,7 +93,7 @@ Completion is triggered by Tab. In paths, live index names come first, then stat
 
 ### ES|QL mode
 
-`elastic-console --esql` starts an `esql>` prompt. Ctrl+Enter sends the whole buffer to `POST /_query?format=txt`. `:set` and `${var}` work, as literal text replacement (undefined names are left as-is). In piped mode, queries are separated by blank lines. There is no highlighting or completion yet. History is `~/.elastic/esql_history`, overridable with `ELASTIC_CONSOLE_HISTORY`.
+`elastic-console --esql` starts an `esql>` prompt. Ctrl+Enter sends the whole buffer to `POST /_query?format=txt`. `:set` and `${var}` work, as literal text replacement (undefined names are left as-is). In piped mode, queries are separated by blank lines. Queries are syntax-highlighted; there is no completion yet. History is `~/.elastic/esql_history`, overridable with `ELASTIC_CONSOLE_HISTORY`.
 
 ### Pager
 
