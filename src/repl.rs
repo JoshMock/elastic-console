@@ -83,18 +83,22 @@ pub fn run_interactive(conn: &Connection, history_path: &Path, esql: bool) -> st
 
     // ponytail: shared cursor position for run-under-cursor (approach b from PLAN)
     let cursor_pos = Arc::new(AtomicUsize::new(0));
-    let highlighter = SyntaxHighlighter::with_cursor_tracker(cursor_pos.clone());
+    let highlighter = if esql {
+        SyntaxHighlighter::esql(cursor_pos.clone())
+    } else {
+        SyntaxHighlighter::with_cursor_tracker(cursor_pos.clone())
+    };
     let completer = EndpointCompleter::with_connection(conn.clone());
     let completion_menu = ColumnarMenu::default().with_name("completion_menu");
 
     let mut line_editor = Reedline::create()
         .with_history(Box::new(history))
         .with_edit_mode(Box::new(reedline::Emacs::new(keybindings)))
+        .with_highlighter(Box::new(highlighter))
         .use_kitty_keyboard_enhancement(true);
-    // ponytail: no ES|QL highlighting/completion yet; add with an ES|QL grammar
+    // ponytail: no ES|QL completion yet; the grammar's command nodes can drive it later
     if !esql {
         line_editor = line_editor
-            .with_highlighter(Box::new(highlighter))
             .with_completer(Box::new(completer))
             .with_menu(ReedlineMenu::EngineCompleter(Box::new(completion_menu)));
     }

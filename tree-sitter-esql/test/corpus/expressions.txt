@@ -1,0 +1,137 @@
+==========
+precedence
+==========
+
+ROW x = 1 + 2 * 3
+
+---
+
+(source_file
+  (row_command
+    (field
+      (identifier)
+      (binary_expression
+        (integer)
+        (binary_expression
+          (integer)
+          (integer))))))
+
+==========
+and binds tighter than or
+==========
+
+FROM a | WHERE a OR b AND c
+
+---
+
+(source_file
+  (from_command
+    (index_pattern))
+  (where_command
+    (binary_expression
+      (identifier)
+      (binary_expression
+        (identifier)
+        (identifier)))))
+
+==========
+predicates
+==========
+
+FROM a | WHERE x IS NOT NULL AND y NOT IN (1, 2) AND z LIKE "a*"
+
+---
+
+(source_file
+  (from_command
+    (index_pattern))
+  (where_command
+    (binary_expression
+      (binary_expression
+        (is_null_expression
+          (identifier))
+        (in_expression
+          (identifier)
+          (integer)
+          (integer)))
+      (like_expression
+        (identifier)
+        (string)))))
+
+==========
+cast and duration
+==========
+
+FROM a | WHERE t > NOW() - 1 day | EVAL s = x::keyword
+
+---
+
+(source_file
+  (from_command
+    (index_pattern))
+  (where_command
+    (binary_expression
+      (identifier)
+      (binary_expression
+        (function_call
+          (function_name))
+        (qualified_integer
+          (integer)
+          (unit)))))
+  (eval_command
+    (field
+      (identifier)
+      (cast_expression
+        (identifier)
+        (type)))))
+
+==========
+match operator
+==========
+
+FROM a | WHERE msg : "err"
+
+---
+
+(source_file
+  (from_command
+    (index_pattern))
+  (where_command
+    (match_expression
+      (identifier)
+      (string))))
+
+==========
+params, vars, comments
+==========
+
+FROM ${idx} // c
+| WHERE a == ?p /* x */
+
+---
+
+(source_file
+  (from_command
+    (index_pattern
+      (variable)))
+  (comment)
+  (where_command
+    (binary_expression
+      (identifier)
+      (parameter)))
+  (comment))
+
+==========
+triple quoted string
+==========
+
+FROM a | GROK m """%{WORD:"w"}"""
+
+---
+
+(source_file
+  (from_command
+    (index_pattern))
+  (grok_command
+    (identifier)
+    (string)))
