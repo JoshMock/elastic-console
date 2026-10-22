@@ -171,6 +171,8 @@ dependencies = [
  "serde_json",
  "tree-sitter",
  "tree-sitter-elasticsearch-console",
+ "tree-sitter-esql",
+ "tree-sitter-language",
  "ureq",
 ]
 
@@ -773,6 +775,14 @@ dependencies = [
 
 [[package]]
 name = "tree-sitter-elasticsearch-console"
+version = "0.1.0"
+dependencies = [
+ "cc",
+ "tree-sitter-language",
+]
+
+[[package]]
+name = "tree-sitter-esql"
 version = "0.1.0"
 dependencies = [
  "cc",
