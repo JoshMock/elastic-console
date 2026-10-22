@@ -21,16 +21,24 @@ impl SyntaxHighlighter {
 
     /// Create a highlighter that shares cursor position with the caller.
     pub fn with_cursor_tracker(cursor_pos: Arc<AtomicUsize>) -> Self {
-        let language = tree_sitter_elasticsearch_console::LANGUAGE;
+        Self::build(
+            tree_sitter_elasticsearch_console::LANGUAGE,
+            tree_sitter_elasticsearch_console::HIGHLIGHTS_QUERY,
+            cursor_pos,
+        )
+    }
+
+    /// Highlighter for ES|QL queries.
+    pub fn esql(cursor_pos: Arc<AtomicUsize>) -> Self {
+        Self::build(tree_sitter_esql::LANGUAGE, tree_sitter_esql::HIGHLIGHTS_QUERY, cursor_pos)
+    }
+
+    fn build(language: tree_sitter_language::LanguageFn, highlights: &str, cursor_pos: Arc<AtomicUsize>) -> Self {
         let mut parser = Parser::new();
         parser
             .set_language(&language.into())
             .expect("grammar version mismatch");
-        let query = Query::new(
-            &language.into(),
-            tree_sitter_elasticsearch_console::HIGHLIGHTS_QUERY,
-        )
-        .expect("invalid highlights query");
+        let query = Query::new(&language.into(), highlights).expect("invalid highlights query");
 
         Self {
             parser: RefCell::new(parser),
@@ -41,12 +49,12 @@ impl SyntaxHighlighter {
 
     fn style_for_capture(&self, capture_name: &str) -> Style {
         match capture_name {
-            "keyword" => Color::Cyan.bold(),
-            "function" => Color::Yellow.normal(),
+            "keyword" | "keyword.operator" => Color::Cyan.bold(),
+            "function" | "module" => Color::Yellow.normal(),
             "string" => Color::Green.normal(),
             "number" => Color::Purple.normal(),
             "boolean" => Color::Purple.normal(),
-            "constant" => Color::Purple.normal(),
+            "constant" | "constant.builtin" | "variable.parameter" => Color::Purple.normal(),
             "comment" => Color::DarkGray.normal(),
             "punctuation.bracket" | "punctuation.delimiter" | "punctuation" => {
                 Color::White.normal()
@@ -120,6 +128,18 @@ impl Highlighter for SyntaxHighlighter {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn esql_highlights_keywords_functions_and_strings() {
+        let h = SyntaxHighlighter::esql(Arc::new(AtomicUsize::new(0)));
+        let input = "FROM logs | WHERE msg == \"hi\" | STATS COUNT(*)";
+        let styled = h.highlight(input, 0);
+        assert_eq!(styled.raw_string(), input);
+        let style_of = |text: &str| styled.buffer.iter().find(|(_, s)| s == text).map(|(st, _)| *st);
+        assert_eq!(style_of("WHERE"), Some(h.style_for_capture("keyword")));
+        assert_eq!(style_of("COUNT"), Some(h.style_for_capture("function")));
+        assert_eq!(style_of("\"hi\""), Some(h.style_for_capture("string")));
+    }
 
     #[test]
     fn test_output_equals_input_empty() {

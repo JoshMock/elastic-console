@@ -3,6 +3,11 @@ use nu_ansi_term::Color;
 use std::io::Write;
 
 pub fn print_response<W: Write>(w: &mut W, resp: &Response) {
+    print_status(w, resp);
+    print_body(w, resp);
+}
+
+pub fn print_status<W: Write>(w: &mut W, resp: &Response) {
     // Status line with color
     let status_color = if resp.status < 300 {
         Color::Green
@@ -17,7 +22,9 @@ pub fn print_response<W: Write>(w: &mut W, resp: &Response) {
         "{}",
         status_color.paint(format!("{} {}", resp.status, resp.status_text))
     );
+}
 
+pub fn print_body<W: Write>(w: &mut W, resp: &Response) {
     // Body: pretty-print if JSON, else raw
     if let Ok(json) = serde_json::from_str::<serde_json::Value>(&resp.body) {
         if let Ok(pretty) = serde_json::to_string_pretty(&json) {

@@ -1,0 +1,158 @@
+==========
+from with metadata
+==========
+
+FROM logs-*, remote:m METADATA _id
+
+---
+
+(source_file
+  (from_command
+    (index_pattern)
+    (index_pattern)
+    (metadata
+      (identifier))))
+
+==========
+row
+==========
+
+ROW a = 1, b = "x"
+
+---
+
+(source_file
+  (row_command
+    (field
+      (identifier)
+      (integer))
+    (field
+      (identifier)
+      (string))))
+
+==========
+keep wildcards
+==========
+
+FROM a | KEEP host.*, *_id
+
+---
+
+(source_file
+  (from_command
+    (index_pattern))
+  (keep_command
+    (identifier_pattern)
+    (identifier_pattern)))
+
+==========
+rename both forms
+==========
+
+FROM a | RENAME a AS b, c = d
+
+---
+
+(source_file
+  (from_command
+    (index_pattern))
+  (rename_command
+    (rename_clause
+      (identifier_pattern
+        (identifier))
+      (identifier_pattern
+        (identifier)))
+    (rename_clause
+      (identifier_pattern
+        (identifier))
+      (identifier_pattern
+        (identifier)))))
+
+==========
+sort
+==========
+
+FROM a | SORT c DESC NULLS LAST, d
+
+---
+
+(source_file
+  (from_command
+    (index_pattern))
+  (sort_command
+    (order_expression
+      (identifier))
+    (order_expression
+      (identifier))))
+
+==========
+stats by
+==========
+
+FROM a | STATS c = COUNT(*) WHERE ok BY host.name
+
+---
+
+(source_file
+  (from_command
+    (index_pattern))
+  (stats_command
+    (aggregate
+      (field
+        (identifier)
+        (function_call
+          (function_name)))
+      (identifier))
+    (by_clause
+      (field
+        (identifier)))))
+
+==========
+enrich
+==========
+
+FROM a | ENRICH p ON x WITH y = z
+
+---
+
+(source_file
+  (from_command
+    (index_pattern))
+  (enrich_command
+    (policy_name)
+    (identifier_pattern
+      (identifier))
+    (enrich_clause
+      (identifier_pattern
+        (identifier))
+      (identifier_pattern
+        (identifier)))))
+
+==========
+lookup join
+==========
+
+FROM a | LOOKUP JOIN lk ON id
+
+---
+
+(source_file
+  (from_command
+    (index_pattern))
+  (lookup_join_command
+    (index_pattern)
+    (identifier)))
+
+==========
+lowercase keywords
+==========
+
+from a | limit 10
+
+---
+
+(source_file
+  (from_command
+    (index_pattern))
+  (limit_command
+    (integer)))

@@ -1,7 +1,7 @@
 use crate::complete::EndpointCompleter;
 use crate::highlight::SyntaxHighlighter;
 use crate::http::execute;
-use crate::output::print_response;
+use crate::output::{print_body, print_status};
 use crate::parse::select_request_at_cursor;
 use crate::vars::{format_vars, is_command, is_vars_command, parse_set_command, substitute_request};
 use crate::Connection;
@@ -67,7 +67,7 @@ fn request_to_run(
     Ok(select_request_at_cursor(buffer, cursor)?.map(|r| substitute_request(r, vars)))
 }
 
-pub fn run_interactive(conn: &Connection, history_path: &Path) -> std::io::Result<()> {
+pub fn run_interactive(conn: &Connection, history_path: &Path, esql: bool) -> std::io::Result<()> {
     println!("{}", banner(conn));
     // Create parent directory if needed
     if let Some(parent) = history_path.parent() {
@@ -83,7 +83,11 @@ pub fn run_interactive(conn: &Connection, history_path: &Path) -> std::io::Resul
 
     // ponytail: shared cursor position for run-under-cursor (approach b from PLAN)
     let cursor_pos = Arc::new(AtomicUsize::new(0));
-    let highlighter = SyntaxHighlighter::with_cursor_tracker(cursor_pos.clone());
+    let highlighter = if esql {
+        SyntaxHighlighter::esql(cursor_pos.clone())
+    } else {
+        SyntaxHighlighter::with_cursor_tracker(cursor_pos.clone())
+    };
     let completer = EndpointCompleter::with_connection(conn.clone());
     let completion_menu = ColumnarMenu::default().with_name("completion_menu");
 
@@ -91,11 +95,15 @@ pub fn run_interactive(conn: &Connection, history_path: &Path) -> std::io::Resul
         .with_history(Box::new(history))
         .with_edit_mode(Box::new(reedline::Emacs::new(keybindings)))
         .with_highlighter(Box::new(highlighter))
-        .with_completer(Box::new(completer))
-        .with_menu(ReedlineMenu::EngineCompleter(Box::new(completion_menu)))
         .use_kitty_keyboard_enhancement(true);
+    // ponytail: no ES|QL completion yet; the grammar's command nodes can drive it later
+    if !esql {
+        line_editor = line_editor
+            .with_completer(Box::new(completer))
+            .with_menu(ReedlineMenu::EngineCompleter(Box::new(completion_menu)));
+    }
 
-    let prompt = EsPrompt;
+    let prompt = EsPrompt(if esql { "esql> " } else { "es> " });
     let mut vars: HashMap<String, String> = HashMap::new();
 
     loop {
@@ -120,16 +128,22 @@ pub fn run_interactive(conn: &Connection, history_path: &Path) -> std::io::Resul
                     continue;
                 }
 
+                if esql {
+                    match execute(conn, &crate::esql::to_request(&buffer, &vars)) {
+                        Ok(resp) => show(&resp),
+                        Err(e) => eprintln!("error: {}", e),
+                    }
+                    continue;
+                }
+
                 // Substitute variables, select request under cursor
                 let cursor = cursor_pos.load(Ordering::Relaxed);
                 match request_to_run(&buffer, cursor, &vars) {
                     Ok(Some(req)) => {
-                        let mut out = stdout();
                         match execute(conn, &req) {
-                            Ok(resp) => print_response(&mut out, &resp),
+                            Ok(resp) => show(&resp),
                             Err(e) => eprintln!("error: {}", e),
                         }
-                        let _ = out.flush();
                     }
                     Ok(None) => {
                         eprintln!("no request found");
@@ -162,11 +176,20 @@ pub fn run_interactive(conn: &Connection, history_path: &Path) -> std::io::Resul
     Ok(())
 }
 
-struct EsPrompt;
+/// Prints the status line, then pages the body.
+fn show(resp: &crate::http::Response) {
+    print_status(&mut stdout(), resp);
+    let _ = stdout().flush();
+    let mut body = Vec::new();
+    print_body(&mut body, resp);
+    crate::pager::page(&crate::pager::command(), &String::from_utf8_lossy(&body), &mut std::io::stdout());
+}
+
+struct EsPrompt(&'static str);
 
 impl Prompt for EsPrompt {
     fn render_prompt_left(&self) -> Cow<'_, str> {
-        Cow::Borrowed("es> ")
+        Cow::Borrowed(self.0)
     }
 
     fn render_prompt_right(&self) -> Cow<'_, str> {
