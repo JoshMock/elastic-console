@@ -13,6 +13,11 @@ pub fn run_all<W: Write>(input: &str, conn: &Connection, out: &mut W) -> Result<
     run_all_with_vars(input, conn, out, &mut HashMap::new())
 }
 
+/// Like `run_all`, but each blank-line-separated chunk is an ES|QL query.
+pub fn run_all_esql<W: Write>(input: &str, conn: &Connection, out: &mut W) -> Result<(), RunError> {
+    run_lines(input, conn, out, &mut HashMap::new(), true)
+}
+
 /// Run all requests, processing :set/:vars commands and substituting variables.
 /// Vars are updated in place so piped scripts can define then use variables.
 pub fn run_all_with_vars<W: Write>(
@@ -21,6 +26,16 @@ pub fn run_all_with_vars<W: Write>(
     out: &mut W,
     vars: &mut HashMap<String, String>,
 ) -> Result<(), RunError> {
+    run_lines(input, conn, out, vars, false)
+}
+
+fn run_lines<W: Write>(
+    input: &str,
+    conn: &Connection,
+    out: &mut W,
+    vars: &mut HashMap<String, String>,
+    esql: bool,
+) -> Result<(), RunError> {
     // Split into chunks: command lines vs request text
     let mut request_chunk = String::new();
 
@@ -28,7 +43,7 @@ pub fn run_all_with_vars<W: Write>(
         if is_command(line) {
             // Flush any accumulated request text first
             if !request_chunk.trim().is_empty() {
-                run_request_chunk(&request_chunk, conn, out, vars)?;
+                run_request_chunk(&request_chunk, conn, out, vars, esql)?;
                 request_chunk.clear();
             }
             // Process command
@@ -48,7 +63,7 @@ pub fn run_all_with_vars<W: Write>(
 
     // Flush remaining request text
     if !request_chunk.trim().is_empty() {
-        run_request_chunk(&request_chunk, conn, out, vars)?;
+        run_request_chunk(&request_chunk, conn, out, vars, esql)?;
     }
 
     Ok(())
@@ -59,9 +74,21 @@ fn run_request_chunk<W: Write>(
     conn: &Connection,
     out: &mut W,
     vars: &HashMap<String, String>,
+    esql: bool,
 ) -> Result<(), RunError> {
-    for req in parse(chunk)? {
-        let resp = execute(conn, &substitute_request(req, vars))?;
+    let reqs: Vec<_> = if esql {
+        // ponytail: blank (or whitespace-only) lines separate queries; a query containing one gets split
+        let lines: Vec<_> = chunk.lines().collect();
+        lines
+            .split(|l| l.trim().is_empty())
+            .filter(|q| !q.is_empty())
+            .map(|q| crate::esql::to_request(&q.join("\n"), vars))
+            .collect()
+    } else {
+        parse(chunk)?.into_iter().map(|r| substitute_request(r, vars)).collect()
+    };
+    for req in reqs {
+        let resp = execute(conn, &req)?;
         print_response(out, &resp);
         // ponytail: HTTP 4xx/5xx still means the request completed; not an error
         // Document: piped mode exits 0 on HTTP errors, non-zero only on parse/network errors
@@ -279,6 +306,42 @@ mod tests {
         assert!(result.is_ok(), "{:?}", result.err());
         let got = received.lock().unwrap().clone();
         assert!(got.contains(r#"{"q": "a say \"hi\" b"}"#), "{}", got);
+    }
+
+    #[test]
+    fn test_esql_piped_runs_each_query_with_vars() {
+        use std::sync::{Arc, Mutex};
+        let received = Arc::new(Mutex::new(Vec::new()));
+        let r = received.clone();
+        let server = MockServer::start(move |req| {
+            r.lock().unwrap().push(req.to_string());
+            ok_response("col\n---\n1")
+        });
+        let conn = Connection { url: server.url(), auth: Auth::None };
+        let mut out = Vec::new();
+
+        run_all_esql(":set i logs\nFROM ${i}\n| LIMIT 1\n\nROW a = 1\n", &conn, &mut out).unwrap();
+
+        let got = received.lock().unwrap().clone();
+        assert_eq!(got.len(), 2);
+        assert!(got[0].starts_with("POST /_query?format=txt "), "{}", got[0]);
+        assert!(got[0].contains(r#"{"query":"FROM logs\n| LIMIT 1"}"#), "{}", got[0]);
+        assert!(got[1].contains(r#"{"query":"ROW a = 1"}"#), "{}", got[1]);
+        assert!(String::from_utf8(out).unwrap().contains("col\n---\n1"));
+    }
+
+    #[test]
+    fn test_esql_piped_splits_on_whitespace_only_line() {
+        use std::sync::{Arc, Mutex};
+        let received = Arc::new(Mutex::new(Vec::new()));
+        let r = received.clone();
+        let server = MockServer::start(move |req| {
+            r.lock().unwrap().push(req.to_string());
+            ok_response("x")
+        });
+        let conn = Connection { url: server.url(), auth: Auth::None };
+        run_all_esql("ROW a = 1\n  \nROW b = 2\n", &conn, &mut Vec::new()).unwrap();
+        assert_eq!(received.lock().unwrap().len(), 2);
     }
 
     #[test]

@@ -11,16 +11,20 @@
 | `src/http.rs` | ureq + rustls client; NDJSON for `_bulk`/`_msearch`; cfg(test) `MockServer` + `read_test_request` |
 | `src/repl.rs` | reedline loop, key bindings (`keybindings()`), banner |
 | `src/runner.rs` | piped mode |
+| `src/esql.rs` | `--esql` mode: wraps a query as `POST /_query?format=txt`, literal `${var}` replacement |
+| `src/pager.rs` | interactive response paging via `$ELASTIC_CONSOLE_PAGER` (default `less -FRX`); direct print on failure |
 | `src/vars.rs` | `:set`/`:vars`, `${var}` substitution |
 | `src/highlight.rs` | `reedline::Highlighter` from the grammar's `HIGHLIGHTS_QUERY`; also records the cursor offset |
 | `src/complete.rs` | `reedline::Completer`: methods, paths, live index names, body keys, field names |
 | `src/index_source.rs`, `src/mapping_source.rs` | `_resolve/index/*` and `_mapping` fetches, 60 s cache, 2 s timeout |
 | `src/body_keys.rs` | walks `data/body_keys.json` along the JSON path at the cursor |
+| `tree-sitter-esql/` | ES\|QL grammar (`grammar.js`, `queries/highlights.scm`, corpus tests) |
 | `data/` | generated from elasticsearch-specification; regenerate, don't hand-edit (skill: `regenerate-spec-data`) |
 
 ## Build and test
 
 - The grammar is a **path dependency** on `../elastic-neovim/tree-sitter-elasticsearch-console` (private repo `elastic/tree-sitter-elasticsearch-console`). It must be cloned there. CI checks it out at `GRAMMAR_REF` (keep `ci.yml` and `release.yml` in sync).
+- The ES|QL grammar lives in `tree-sitter-esql/` (vendored until it gets its own repo). After editing `grammar.js`, run `tree-sitter generate` there and commit the regenerated `src/`.
 - It compiles C, so a C compiler and readable system headers are required.
 - `cargo test` and `cargo clippy --all-targets` must both be clean before committing.
 - In the nono sandbox: `export CARGO_HOME=/tmp/cargo-home` (`~/.cargo/registry` is read-only), and `/usr/include` must be readable or the grammar build fails with `stdc-predef.h: Permission denied`.
