@@ -8,11 +8,9 @@ permissions: {}
 
 env:
   # The grammar is a path dependency on ../elastic-neovim/tree-sitter-elasticsearch-console
-  # (see Cargo.toml), so it is checked out next to this repo. Pinned to the commit from
-  # elastic/tree-sitter-elasticsearch-console#6 (exports HIGHLIGHTS_QUERY); move to a
-  # main commit once that PR merges.
+  # (see Cargo.toml), so it is checked out next to this repo. Pinned to a main commit.
   # Keep in sync with GRAMMAR_REF in ci.yml.
-  GRAMMAR_REF: c4d575baa73522e416c36d2717a6c522ce44e6d8
+  GRAMMAR_REF: bedc986f4a72cee6ca2f1ad3730dfd61eeb4c054
 
 jobs:
   release-please:
@@ -73,8 +71,6 @@ jobs:
         with:
           repository: elastic/tree-sitter-elasticsearch-console
           ref: ${{ env.GRAMMAR_REF }}
-          # The grammar repo is private: a fine-grained token with read access to it.
-          token: ${{ secrets.GRAMMAR_REPO_TOKEN }}
           path: elastic-neovim/tree-sitter-elasticsearch-console
           persist-credentials: false
 
@@ -118,7 +114,6 @@ jobs:
         with:
           repository: elastic/tree-sitter-elasticsearch-console
           ref: ${{ env.GRAMMAR_REF }}
-          token: ${{ secrets.GRAMMAR_REPO_TOKEN }}
           path: grammar
           persist-credentials: false
 
