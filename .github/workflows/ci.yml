@@ -28,13 +28,12 @@ jobs:
           path: elastic-repl
           persist-credentials: false
 
-      # Path dependency on ../elastic-neovim/tree-sitter-elasticsearch-console (private repo).
+      # Path dependency on ../elastic-neovim/tree-sitter-elasticsearch-console.
       # Secrets are not available to PRs from forks, so those runs fail here.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           repository: elastic/tree-sitter-elasticsearch-console
           ref: ${{ env.GRAMMAR_REF }}
-          token: ${{ secrets.GRAMMAR_REPO_TOKEN }}
           path: elastic-neovim/tree-sitter-elasticsearch-console
           persist-credentials: false
 

@@ -71,8 +71,6 @@ jobs:
         with:
           repository: elastic/tree-sitter-elasticsearch-console
           ref: ${{ env.GRAMMAR_REF }}
-          # The grammar repo is private: a fine-grained token with read access to it.
-          token: ${{ secrets.GRAMMAR_REPO_TOKEN }}
           path: elastic-neovim/tree-sitter-elasticsearch-console
           persist-credentials: false
 
@@ -116,7 +114,6 @@ jobs:
         with:
           repository: elastic/tree-sitter-elasticsearch-console
           ref: ${{ env.GRAMMAR_REF }}
-          token: ${{ secrets.GRAMMAR_REPO_TOKEN }}
           path: grammar
           persist-credentials: false
 
