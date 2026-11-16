@@ -10,7 +10,7 @@ env:
   # The grammar is a path dependency on ../elastic-neovim/tree-sitter-elasticsearch-console
   # (see Cargo.toml), so it is checked out next to this repo. Pinned to a main commit.
   # Keep in sync with GRAMMAR_REF in ci.yml.
-  GRAMMAR_REF: 18c9905e72c9645be787ec176f586024d5b52e00
+  GRAMMAR_REF: bedc986f4a72cee6ca2f1ad3730dfd61eeb4c054
 
 jobs:
   release-please:
