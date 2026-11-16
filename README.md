@@ -91,6 +91,14 @@ Exit codes:
 
 Completion is triggered by Tab. In paths, live index names come first, then static endpoint templates. In bodies, spec keys come first, then field names; under a dynamic-key object such as `match`, only field names are offered.
 
+### ES|QL mode
+
+`elastic-console --esql` starts an `esql>` prompt. Ctrl+Enter sends the whole buffer to `POST /_query?format=txt`. `:set` and `${var}` work, as literal text replacement (undefined names are left as-is). In piped mode, queries are separated by blank lines. Queries are syntax-highlighted; there is no completion yet. History is `~/.elastic/esql_history`, overridable with `ELASTIC_CONSOLE_HISTORY`.
+
+### Pager
+
+In interactive mode, responses go through `$ELASTIC_CONSOLE_PAGER` (run with `sh -c`; default `less -FRX`). Set it to `jless` for collapsible JSON (not for `--esql`, whose output is plain text). Piped mode never pages. If the pager fails to start or exits non-zero, the response is printed directly.
+
 ## Environment variables
 
 The Elastic CLI sets these automatically from the active context when running `elastic console`:

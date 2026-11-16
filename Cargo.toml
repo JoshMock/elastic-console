@@ -9,6 +9,9 @@ tree-sitter = "0.25"
 # Local clone of the grammar (cargo does not expand ~, so the path is relative)
 tree-sitter-elasticsearch-console = { path = "../elastic-neovim/tree-sitter-elasticsearch-console" }
 # ureq with rustls for pure-Rust TLS (ring crypto, webpki roots)
+# ES|QL grammar, vendored here until it moves to its own repo
+tree-sitter-esql = { path = "tree-sitter-esql" }
+tree-sitter-language = "0.1"
 ureq = { version = "3", default-features = false, features = ["rustls"] }
 reedline = "0.52"
 nu-ansi-term = "0.50"
